@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────
+# Diagnostic App – Default Bundled Config
+# Copy to your app data folder to customise.
+# ─────────────────────────────────────────────
+
+app:
+  title: "Medical Diagnosis Assistant"
+  version: "1.0.0"
+  theme: light
+
+backend:
+  host: "127.0.0.1"
+  port: 8765
+  startup_timeout_seconds: 15
+
+model:
+  default_path: ""
+
+result_display:
+  style: "card"
+  show_probability: true
+  probability_format: "percent"
+  positive_class_color: "#E53935"
+  negative_class_color: "#43A047"
+
+evaluation_dialog:
+  enabled: true
+  field_order:
+    - doctor_diagnosis
+    - notes
+  doctor_diagnosis_options:
+    - "Positive"
+    - "Negative"
+    - "Uncertain"
+  auto_open_after_result: true
+
+csv_logging:
+  enabled: true
+  output_path: "sessions.csv"
+  timestamp_format: "%Y-%m-%d %H:%M:%S"
+  include_probability: true
+  include_doctor_diagnosis: true
+  include_notes: true
+
+form:
+  missing_value_token: "?"
+  show_tooltips: true
+  show_range_hints: true

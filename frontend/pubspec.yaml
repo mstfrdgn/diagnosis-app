@@ -1,0 +1,46 @@
+name: diagnostic_app
+description: A configurable medical diagnosis desktop application.
+version: 1.0.0+1
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # REST calls to the local FastAPI backend
+  http: ^1.2.0
+
+  # Parse app_config.yaml
+  yaml: ^3.1.2
+
+  # Native file picker for .pkcls model files
+  file_picker: ^8.0.0
+
+  # CSV session logging
+  csv: ^5.1.1
+
+  # App documents / cache directory
+  path_provider: ^2.1.3
+
+  # Platform-safe path joining
+  path: ^1.9.0
+
+  # ChangeNotifier-based state management
+  provider: ^6.1.2
+
+  # Declarative routing
+  go_router: ^14.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/config/app_config.yaml

@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────
+# Diagnostic App – Configuration File
+# ─────────────────────────────────────────────
+
+app:
+  title: "Medical Diagnosis Assistant"
+  version: "1.0.0"
+  theme: light                  # light | dark
+
+backend:
+  host: "127.0.0.1"
+  port: 8765                    # Port FastAPI listens on
+  startup_timeout_seconds: 15   # How long Flutter waits for the backend to be ready
+
+model:
+  default_path: ""              # Optional: pre-load a .pkcls file on startup
+
+result_display:
+  style: "card"                 # card | banner | detailed
+  show_probability: true
+  probability_format: "percent" # percent | decimal
+  positive_class_color: "#E53935"   # Red for positive/disease present
+  negative_class_color: "#43A047"   # Green for negative/disease absent
+
+evaluation_dialog:
+  enabled: true
+  # Order in which fields appear in the evaluation dialog
+  field_order:
+    - doctor_diagnosis
+    - notes
+  doctor_diagnosis_options:
+    - "Positive"
+    - "Negative"
+    - "Uncertain"
+  auto_open_after_result: true
+
+csv_logging:
+  enabled: true
+  output_path: "sessions.csv"   # Relative to app data directory
+  timestamp_format: "%Y-%m-%d %H:%M:%S"
+  include_probability: true
+  include_doctor_diagnosis: true
+  include_notes: true
+
+form:
+  # How to handle missing / unknown values submitted by the user
+  missing_value_token: "?"
+  # Show variable descriptions as tooltips if available from the Orange domain
+  show_tooltips: true
+  # For continuous variables: show allowed range hint below the field
+  show_range_hints: true

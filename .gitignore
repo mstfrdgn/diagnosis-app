@@ -1,0 +1,27 @@
+# Python
+backend/.venv/
+**/__pycache__/
+*.pyc
+backend/build/
+backend/dist/
+*.spec
+
+# Flutter/Dart
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.pub-cache/
+frontend/.pub/
+frontend/**/ephemeral/
+
+# Logs
+*.log
+
+# Dev scratch artifacts (screenshots, ad-hoc capture scripts)
+scratch_shots/
+
+# Editor/OS
+.DS_Store
+.idea/
+.claude/
