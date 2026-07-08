@@ -6,6 +6,7 @@ import 'config/app_config.dart';
 import 'models/model_domain.dart';
 import 'screens/home_screen.dart';
 import 'screens/input_screen.dart';
+import 'screens/result_screen.dart';
 import 'services/backend_manager.dart';
 
 // ── router ────────────────────────────────────────────────────────────────────
@@ -40,6 +41,11 @@ GoRouter buildRouter(BackendNotifier notifier) {
         path: '/input',
         builder: (_, state) =>
             InputScreen(initialDomain: state.extra as ModelDomain?),
+      ),
+      GoRoute(
+        path: '/result',
+        builder: (_, state) =>
+            ResultScreen(args: state.extra as ResultScreenArgs),
       ),
     ],
   );

@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../config/app_config.dart';
 import '../models/model_domain.dart';
 import '../models/prediction_result.dart';
-import '../models/session_record.dart';
 import '../services/api_service.dart';
-import '../services/csv_service.dart';
 import '../widgets/dynamic_form.dart';
-import '../widgets/evaluation_dialog.dart';
+import 'result_screen.dart';
 
 /// Renders a [DynamicForm] for the currently loaded model's domain and lets
 /// the user submit values to `/predict`.
@@ -36,7 +35,6 @@ class _InputScreenState extends State<InputScreen> {
 
   bool _predicting = false;
   String? _predictError;
-  PredictionResult? _result;
 
   @override
   void initState() {
@@ -80,42 +78,27 @@ class _InputScreenState extends State<InputScreen> {
     PredictionResult? result;
     try {
       result = await context.read<ApiService>().predict(_values.value);
-      if (!mounted) return;
-      setState(() => _result = result);
     } catch (e) {
       if (!mounted) return;
       setState(() => _predictError = e.toString());
     } finally {
       if (mounted) setState(() => _predicting = false);
     }
-    if (result != null && mounted) {
-      await _handlePostPrediction(result);
-    }
-  }
-
-  Future<void> _handlePostPrediction(PredictionResult result) async {
-    final config = context.read<AppConfig>();
-
-    EvaluationResult? evaluation;
-    if (config.evaluationDialogEnabled &&
-        config.evaluationDialogAutoOpenAfterResult) {
-      evaluation = await EvaluationDialog.show(context, config: config);
-      if (!mounted) return;
-    }
 
     final domain = _domain;
-    if (config.csvLoggingEnabled && domain != null) {
-      final record = SessionRecord(
-        timestamp: result.timestamp,
-        inputs: _values.value,
-        predictedClass: result.predictedClass,
-        probabilities: result.probabilities,
-        doctorDiagnosis: evaluation?.doctorDiagnosis,
-        notes: evaluation?.notes,
-      );
-      await const CsvService()
-          .appendRecord(record, domain: domain, config: config);
-    }
+    if (result == null || domain == null || !mounted) return;
+
+    await context.push(
+      '/result',
+      extra: ResultScreenArgs(
+        domain: domain,
+        result: result,
+        inputs: Map<String, dynamic>.from(_values.value),
+      ),
+    );
+    if (!mounted) return;
+    _formKey.currentState?.reset();
+    _values.value = {};
   }
 
   @override
@@ -158,7 +141,6 @@ class _InputScreenState extends State<InputScreen> {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
-        if (_result != null) _ResultSummary(result: _result!),
         SafeArea(
           minimum: const EdgeInsets.all(16),
           child: FilledButton.icon(
@@ -199,37 +181,6 @@ class _ErrorState extends StatelessWidget {
           const SizedBox(height: 12),
           OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
         ],
-      ),
-    );
-  }
-}
-
-class _ResultSummary extends StatelessWidget {
-  const _ResultSummary({required this.result});
-
-  final PredictionResult result;
-
-  @override
-  Widget build(BuildContext context) {
-    final sorted = result.probabilities.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    return Card(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Predicted: ${result.predictedClass}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            for (final entry in sorted)
-              Text('${entry.key}: ${(entry.value * 100).toStringAsFixed(1)}%'),
-          ],
-        ),
       ),
     );
   }

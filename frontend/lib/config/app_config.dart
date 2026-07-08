@@ -7,6 +7,11 @@ class AppConfig {
     this.backendStartupTimeoutSeconds = 15,
     this.defaultModelPath = '',
     this.showRangeHints = true,
+    this.resultDisplayStyle = 'card',
+    this.resultDisplayShowProbability = true,
+    this.resultDisplayProbabilityFormat = 'percent',
+    this.resultDisplayPositiveClassColor = '#E53935',
+    this.resultDisplayNegativeClassColor = '#43A047',
     this.evaluationDialogEnabled = true,
     this.evaluationDialogFieldOrder = const ['doctor_diagnosis', 'notes'],
     this.evaluationDialogDoctorDiagnosisOptions = const [
@@ -31,6 +36,12 @@ class AppConfig {
   final String defaultModelPath;
   final bool showRangeHints;
 
+  final String resultDisplayStyle;
+  final bool resultDisplayShowProbability;
+  final String resultDisplayProbabilityFormat;
+  final String resultDisplayPositiveClassColor;
+  final String resultDisplayNegativeClassColor;
+
   final bool evaluationDialogEnabled;
   final List<String> evaluationDialogFieldOrder;
   final List<String> evaluationDialogDoctorDiagnosisOptions;
@@ -50,6 +61,7 @@ class AppConfig {
     final backend = (yaml['backend'] as Map?) ?? {};
     final model = (yaml['model'] as Map?) ?? {};
     final form = (yaml['form'] as Map?) ?? {};
+    final resultDisplay = (yaml['result_display'] as Map?) ?? {};
     final evaluationDialog = (yaml['evaluation_dialog'] as Map?) ?? {};
     final csvLogging = (yaml['csv_logging'] as Map?) ?? {};
 
@@ -65,6 +77,15 @@ class AppConfig {
           (backend['startup_timeout_seconds'] as int?) ?? 15,
       defaultModelPath: (model['default_path'] as String?) ?? '',
       showRangeHints: (form['show_range_hints'] as bool?) ?? true,
+      resultDisplayStyle: (resultDisplay['style'] as String?) ?? 'card',
+      resultDisplayShowProbability:
+          (resultDisplay['show_probability'] as bool?) ?? true,
+      resultDisplayProbabilityFormat:
+          (resultDisplay['probability_format'] as String?) ?? 'percent',
+      resultDisplayPositiveClassColor:
+          (resultDisplay['positive_class_color'] as String?) ?? '#E53935',
+      resultDisplayNegativeClassColor:
+          (resultDisplay['negative_class_color'] as String?) ?? '#43A047',
       evaluationDialogEnabled: (evaluationDialog['enabled'] as bool?) ?? true,
       evaluationDialogFieldOrder:
           (evaluationDialog['field_order'] as List?)?.cast<String>() ??
