@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../config/app_config.dart';
+import '../config/app_config_notifier.dart';
 import '../models/model_domain.dart';
 import '../models/prediction_result.dart';
 import '../models/session_record.dart';
@@ -49,7 +49,7 @@ class _ResultScreenState extends State<ResultScreen> {
     if (_handled || !mounted) return;
     _handled = true;
 
-    final config = context.read<AppConfig>();
+    final config = context.read<AppConfigNotifier>().config;
 
     EvaluationResult? evaluation;
     if (config.evaluationDialogEnabled &&
@@ -78,7 +78,7 @@ class _ResultScreenState extends State<ResultScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final config = context.watch<AppConfig>();
+    final config = context.watch<AppConfigNotifier>().config;
     return Scaffold(
       appBar: AppBar(title: const Text('Result')),
       body: SingleChildScrollView(

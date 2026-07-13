@@ -9,8 +9,8 @@ import 'package:yaml/yaml.dart';
 import 'app_config.dart';
 
 abstract final class ConfigLoader {
-  static const _fileName = 'app_config.yaml';
-  static const _assetPath = 'assets/config/$_fileName';
+  static const fileName = 'app_config.yaml';
+  static const _assetPath = 'assets/config/$fileName';
 
   /// Load config using this resolution order:
   ///   1. {appDocumentsDir}/app_config.yaml  – user-edited copy
@@ -21,7 +21,7 @@ abstract final class ConfigLoader {
   static Future<AppConfig> load() async {
     try {
       final appDir = await getApplicationDocumentsDirectory();
-      final userFile = File(p.join(appDir.path, _fileName));
+      final userFile = File(p.join(appDir.path, fileName));
 
       if (!userFile.existsSync()) {
         final bundled = await rootBundle.loadString(_assetPath);

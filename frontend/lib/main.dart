@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'app.dart';
-import 'config/app_config.dart';
+import 'config/app_config_notifier.dart';
 import 'config/config_loader.dart';
 import 'services/api_service.dart';
 import 'services/backend_manager.dart';
@@ -25,7 +25,9 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
-        Provider<AppConfig>.value(value: config),
+        ChangeNotifierProvider<AppConfigNotifier>.value(
+          value: AppConfigNotifier(config),
+        ),
         ChangeNotifierProvider<BackendNotifier>.value(value: backendNotifier),
         // Rebuilt whenever BackendNotifier changes (e.g. after a retry picks
         // a different port), so it always targets the live backend.

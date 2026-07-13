@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import 'config/app_config.dart';
+import 'config/app_config_notifier.dart';
 import 'models/model_domain.dart';
 import 'screens/home_screen.dart';
 import 'screens/input_screen.dart';
 import 'screens/result_screen.dart';
+import 'screens/settings_screen.dart';
 import 'services/backend_manager.dart';
 
 // ── router ────────────────────────────────────────────────────────────────────
@@ -47,6 +48,7 @@ GoRouter buildRouter(BackendNotifier notifier) {
         builder: (_, state) =>
             ResultScreen(args: state.extra as ResultScreenArgs),
       ),
+      GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
     ],
   );
 }
@@ -60,7 +62,7 @@ class DiagnosticApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final config = context.read<AppConfig>();
+    final config = context.watch<AppConfigNotifier>().config;
     final isDark = config.appTheme == 'dark';
     return MaterialApp.router(
       title: config.appTitle,

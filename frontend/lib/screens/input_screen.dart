@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../config/app_config.dart';
+import '../config/app_config_notifier.dart';
 import '../models/model_domain.dart';
 import '../models/prediction_result.dart';
 import '../services/api_service.dart';
@@ -121,7 +121,8 @@ class _InputScreenState extends State<InputScreen> {
       return const Center(child: Text('No model loaded.'));
     }
 
-    final showRangeHints = context.watch<AppConfig>().showRangeHints;
+    final showRangeHints =
+        context.watch<AppConfigNotifier>().config.showRangeHints;
 
     return Column(
       children: [
