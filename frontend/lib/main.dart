@@ -6,11 +6,14 @@ import 'config/app_config_notifier.dart';
 import 'config/config_loader.dart';
 import 'services/api_service.dart';
 import 'services/backend_manager.dart';
+import 'services/model_config_notifier.dart';
+import 'services/model_config_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final config = await ConfigLoader.load();
+  final modelConfigEntries = await ModelConfigStore.load();
 
   final backendManager = BackendManager();
   final backendNotifier = BackendNotifier(backendManager, config);
@@ -27,6 +30,9 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider<AppConfigNotifier>.value(
           value: AppConfigNotifier(config),
+        ),
+        ChangeNotifierProvider<ModelConfigNotifier>.value(
+          value: ModelConfigNotifier(modelConfigEntries),
         ),
         ChangeNotifierProvider<BackendNotifier>.value(value: backendNotifier),
         // Rebuilt whenever BackendNotifier changes (e.g. after a retry picks

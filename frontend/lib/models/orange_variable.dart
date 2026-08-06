@@ -34,6 +34,19 @@ class OrangeVariable {
     );
   }
 
+  /// Returns a copy with [min]/[max] replaced, used to apply a
+  /// Configuration Screen range override without touching the domain hint.
+  OrangeVariable copyWith({double? min, double? max}) {
+    return OrangeVariable(
+      name: name,
+      type: type,
+      role: role,
+      values: values,
+      min: min ?? this.min,
+      max: max ?? this.max,
+    );
+  }
+
   static VariableType _typeFromJson(String value) {
     switch (value) {
       case 'continuous':

@@ -17,11 +17,8 @@ model:
   default_path: ""
 
 result_display:
-  style: "card"
   show_probability: true
   probability_format: "percent"
-  positive_class_color: "#E53935"
-  negative_class_color: "#43A047"
 
 evaluation_dialog:
   enabled: true

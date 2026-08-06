@@ -25,33 +25,47 @@ class VariableField extends StatelessWidget {
 
   static const _unknownOption = '— Unknown —';
 
+  /// Bounds come from Orange as doubles; trim the `.0` off whole numbers so
+  /// hints read "0 – 120" rather than "0.0 – 120.0".
+  static String? _format(double? value) {
+    if (value == null) return null;
+    return value == value.roundToDouble() && value.abs() < 1e15
+        ? value.toStringAsFixed(0)
+        : value.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     switch (variable.type) {
       case VariableType.discrete:
-        return _buildDropdown();
+        return _buildDropdown(context);
       case VariableType.continuous:
       case VariableType.time:
-        return _buildNumberField();
+        return _buildNumberField(context);
       case VariableType.string:
         return const SizedBox.shrink();
     }
   }
 
-  Widget _buildDropdown() {
+  Widget _buildDropdown(BuildContext context) {
     final options = variable.values ?? const <String>[];
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: DropdownButtonFormField<String>(
         initialValue: value as String? ?? _unknownOption,
         decoration: InputDecoration(
           labelText: variable.name,
-          border: const OutlineInputBorder(),
+          prefixIcon: const Icon(Icons.checklist_rtl, size: 20),
         ),
         items: [
-          const DropdownMenuItem(
+          DropdownMenuItem(
             value: _unknownOption,
-            child: Text(_unknownOption),
+            child: Text(
+              _unknownOption,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
           ...options.map(
             (option) => DropdownMenuItem(value: option, child: Text(option)),
@@ -63,19 +77,25 @@ class VariableField extends StatelessWidget {
     );
   }
 
-  Widget _buildNumberField() {
+  Widget _buildNumberField(BuildContext context) {
     final hasRange = variable.min != null || variable.max != null;
     final hint = showRangeHints && hasRange
-        ? '(${variable.min?.toString() ?? '-∞'} – ${variable.max?.toString() ?? '+∞'})'
+        ? 'Expected range: ${_format(variable.min) ?? '−∞'} – ${_format(variable.max) ?? '+∞'}'
         : null;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: TextFormField(
         initialValue: value?.toString() ?? '',
         decoration: InputDecoration(
           labelText: variable.name,
           helperText: hint,
-          border: const OutlineInputBorder(),
+          hintText: 'Leave empty if unknown',
+          prefixIcon: Icon(
+            variable.type == VariableType.time
+                ? Icons.schedule
+                : Icons.straighten,
+            size: 20,
+          ),
         ),
         keyboardType:
             const TextInputType.numberWithOptions(decimal: true, signed: true),
@@ -86,10 +106,10 @@ class VariableField extends StatelessWidget {
           final parsed = double.tryParse(input.trim());
           if (parsed == null) return 'Enter a number';
           if (variable.min != null && parsed < variable.min!) {
-            return 'Must be ≥ ${variable.min}';
+            return 'Must be ≥ ${_format(variable.min)}';
           }
           if (variable.max != null && parsed > variable.max!) {
-            return 'Must be ≤ ${variable.max}';
+            return 'Must be ≤ ${_format(variable.max)}';
           }
           return null;
         },

@@ -16,11 +16,8 @@ model:
   default_path: ""              # Optional: pre-load a .pkcls file on startup
 
 result_display:
-  style: "card"                 # card | banner | detailed
   show_probability: true
   probability_format: "percent" # percent | decimal
-  positive_class_color: "#E53935"   # Red for positive/disease present
-  negative_class_color: "#43A047"   # Green for negative/disease absent
 
 evaluation_dialog:
   enabled: true

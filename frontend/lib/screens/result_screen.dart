@@ -7,6 +7,7 @@ import '../models/model_domain.dart';
 import '../models/prediction_result.dart';
 import '../models/session_record.dart';
 import '../services/csv_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/evaluation_dialog.dart';
 import '../widgets/result_display.dart';
 
@@ -23,9 +24,9 @@ class ResultScreenArgs {
   final Map<String, dynamic> inputs;
 }
 
-/// Shows a [PredictionResult] (styled per `config.resultDisplay`) and, once
-/// the first frame is up, opens the evaluation dialog (if configured) and
-/// logs a [SessionRecord] to CSV (if configured).
+/// Shows a [PredictionResult] and, once the first frame is up, opens the
+/// evaluation dialog (if configured) and logs a [SessionRecord] to CSV (if
+/// configured).
 class ResultScreen extends StatefulWidget {
   const ResultScreen({super.key, required this.args});
 
@@ -78,27 +79,64 @@ class _ResultScreenState extends State<ResultScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final config = context.watch<AppConfigNotifier>().config;
     return Scaffold(
-      appBar: AppBar(title: const Text('Result')),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            ResultDisplay(result: widget.args.result, config: config),
-            if (_evaluation != null)
-              _EvaluationSummary(evaluation: _evaluation!),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: FilledButton.icon(
-                onPressed: () => context.pop(),
-                icon: const Icon(Icons.arrow_back),
-                label: const Text('New Patient'),
+      appBar: AppBar(
+        title: const Text('Prediction result'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: TextButton.icon(
+              onPressed: () => context.pop(),
+              icon: const Icon(Icons.person_add_alt, size: 20),
+              label: const Text('New patient'),
+            ),
+          ),
+        ],
+      ),
+      body: Scrollbar(
+        child: SingleChildScrollView(
+          padding: AppSpacing.page,
+          child: Center(
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(maxWidth: AppSpacing.narrowWidth),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ResultDisplay(result: widget.args.result, config: config),
+                  if (_evaluation != null) ...[
+                    const SizedBox(height: 16),
+                    _EvaluationSummary(evaluation: _evaluation!),
+                  ],
+                  const SizedBox(height: 24),
+                  Text(
+                    'Recorded ${_formatTime(widget.args.result.timestamp)}'
+                    '${config.csvLoggingEnabled ? ' · saved to the session log' : ''}',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: () => context.pop(),
+                    icon: const Icon(Icons.arrow_back, size: 20),
+                    label: const Text('New patient'),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  static String _formatTime(DateTime time) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(time.hour)}:${two(time.minute)}';
   }
 }
 
@@ -112,21 +150,63 @@ class _EvaluationSummary extends StatelessWidget {
     if (evaluation.doctorDiagnosis == null && evaluation.notes == null) {
       return const SizedBox.shrink();
     }
+    final theme = Theme.of(context);
     return Card(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Evaluation', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.assignment_turned_in_outlined,
+                    size: 18, color: theme.colorScheme.onSurfaceVariant),
+                const SizedBox(width: 8),
+                Text('Doctor’s evaluation',
+                    style: theme.textTheme.titleSmall),
+              ],
+            ),
+            const SizedBox(height: 14),
             if (evaluation.doctorDiagnosis != null)
-              Text('Doctor diagnosis: ${evaluation.doctorDiagnosis}'),
-            if (evaluation.notes != null) Text('Notes: ${evaluation.notes}'),
+              _SummaryRow(
+                label: 'Diagnosis',
+                value: evaluation.doctorDiagnosis!,
+              ),
+            if (evaluation.notes != null)
+              _SummaryRow(label: 'Notes', value: evaluation.notes!),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 90,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value, style: theme.textTheme.bodyMedium)),
+        ],
       ),
     );
   }

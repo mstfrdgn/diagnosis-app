@@ -47,32 +47,55 @@ class _EvaluationDialogState extends State<EvaluationDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return AlertDialog(
-      title: const Text('Evaluation'),
+      icon: Container(
+        height: 44,
+        width: 44,
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primary.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(Icons.assignment_turned_in_outlined,
+            size: 22, color: theme.colorScheme.primary),
+      ),
+      title: const Text('Record your evaluation'),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       content: Form(
         key: _formKey,
         child: SizedBox(
-          width: 400,
+          width: 420,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              Text(
+                'Saved alongside the model’s prediction in the session log.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
               for (final field in widget.config.evaluationDialogFieldOrder)
                 Padding(
-                  padding: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.only(top: 14),
                   child: _buildField(field),
                 ),
             ],
           ),
         ),
       ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Skip'),
         ),
-        FilledButton(
+        const SizedBox(width: 8),
+        FilledButton.icon(
           onPressed: _confirm,
-          child: const Text('Save'),
+          icon: const Icon(Icons.check, size: 20),
+          label: const Text('Save'),
         ),
       ],
     );
@@ -85,7 +108,7 @@ class _EvaluationDialogState extends State<EvaluationDialog> {
           initialValue: _doctorDiagnosis,
           decoration: const InputDecoration(
             labelText: 'Doctor diagnosis',
-            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.medical_information_outlined, size: 20),
           ),
           items: [
             for (final option
@@ -99,7 +122,7 @@ class _EvaluationDialogState extends State<EvaluationDialog> {
           controller: _notesController,
           decoration: const InputDecoration(
             labelText: 'Notes',
-            border: OutlineInputBorder(),
+            hintText: 'Anything worth recording about this case…',
             alignLabelWithHint: true,
           ),
           minLines: 3,

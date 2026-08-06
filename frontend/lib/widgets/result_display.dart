@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../config/app_config.dart';
 import '../models/prediction_result.dart';
+import '../theme/app_theme.dart';
 
-/// Renders a [PredictionResult] using one of three styles selected by
-/// `config.resultDisplay.style`: card | banner | detailed.
+/// Renders a [PredictionResult] as a card: the predicted class in large
+/// type, followed by a probability bar per class (when
+/// `config.resultDisplay.show_probability` is on).
 class ResultDisplay extends StatelessWidget {
   const ResultDisplay({super.key, required this.result, required this.config});
 
@@ -13,114 +15,96 @@ class ResultDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    switch (config.resultDisplayStyle) {
-      case 'banner':
-        return _BannerResult(result: result, config: config);
-      case 'detailed':
-        return _DetailedResult(result: result, config: config);
-      case 'card':
-      default:
-        return _CardResult(result: result, config: config);
-    }
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final sorted = result.probabilities.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final confidence = sorted.isEmpty ? null : sorted.first.value;
+
+    return Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Headline band: the answer itself, given the most visual weight.
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
+            color: scheme.primary.withValues(alpha: 0.07),
+            child: Column(
+              children: [
+                Text(
+                  'PREDICTED CLASS',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.primary,
+                    letterSpacing: 1.2,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  result.predictedClass,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.displaySmall
+                      ?.copyWith(color: scheme.onSurface),
+                ),
+                if (config.resultDisplayShowProbability &&
+                    confidence != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${_formatProbability(confidence, config.resultDisplayProbabilityFormat)} confidence',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.onPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (config.resultDisplayShowProbability && sorted.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'All classes',
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 14),
+                  for (final entry in sorted)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: _ProbabilityBar(
+                        label: entry.key,
+                        value: entry.value,
+                        highlighted: entry.key == result.predictedClass,
+                        format: config.resultDisplayProbabilityFormat,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
-}
-
-// ── shared helpers ───────────────────────────────────────────────────────────
-
-List<MapEntry<String, double>> _sortedProbabilities(PredictionResult result) {
-  return result.probabilities.entries.toList()
-    ..sort((a, b) => b.value.compareTo(a.value));
 }
 
 String _formatProbability(double value, String format) {
   return format == 'decimal'
       ? value.toStringAsFixed(3)
       : '${(value * 100).toStringAsFixed(1)}%';
-}
-
-Color _parseHexColor(String hex) {
-  var value = hex.replaceFirst('#', '');
-  if (value.length == 6) value = 'FF$value';
-  return Color(int.parse(value, radix: 16));
-}
-
-const _positiveLabels = {
-  'positive',
-  'yes',
-  'present',
-  'disease',
-  'malignant',
-  'sick',
-  'true',
-  '1',
-};
-const _negativeLabels = {
-  'negative',
-  'no',
-  'absent',
-  'healthy',
-  'benign',
-  'false',
-  '0',
-};
-
-/// Best-effort guess at whether [label] represents the "condition present"
-/// outcome, used only to pick a banner color. Returns `null` (neutral) when
-/// the label doesn't match either common convention.
-bool? _isPositiveLabel(String label) {
-  final normalized = label.trim().toLowerCase();
-  if (_positiveLabels.contains(normalized)) return true;
-  if (_negativeLabels.contains(normalized)) return false;
-  return null;
-}
-
-// ── card ──────────────────────────────────────────────────────────────────
-
-class _CardResult extends StatelessWidget {
-  const _CardResult({required this.result, required this.config});
-
-  final PredictionResult result;
-  final AppConfig config;
-
-  @override
-  Widget build(BuildContext context) {
-    final sorted = _sortedProbabilities(result);
-    return Card(
-      margin: const EdgeInsets.all(16),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Predicted class',
-                style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 4),
-            Text(
-              result.predictedClass,
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            if (config.resultDisplayShowProbability) ...[
-              const SizedBox(height: 20),
-              for (final entry in sorted)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: _ProbabilityBar(
-                    label: entry.key,
-                    value: entry.value,
-                    highlighted: entry.key == result.predictedClass,
-                    format: config.resultDisplayProbabilityFormat,
-                  ),
-                ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _ProbabilityBar extends StatelessWidget {
@@ -138,9 +122,9 @@ class _ProbabilityBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = highlighted
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).colorScheme.outline;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final color = highlighted ? scheme.primary : scheme.outline;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -149,155 +133,37 @@ class _ProbabilityBar extends StatelessWidget {
           children: [
             Text(
               label,
-              style: TextStyle(
-                fontWeight: highlighted ? FontWeight.w600 : FontWeight.normal,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: highlighted ? FontWeight.w600 : FontWeight.w400,
+                color: highlighted ? scheme.onSurface : scheme.onSurfaceVariant,
               ),
             ),
-            Text(_formatProbability(value, format)),
+            Text(
+              _formatProbability(value, format),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: highlighted ? FontWeight.w700 : FontWeight.w500,
+                color: highlighted ? scheme.primary : scheme.onSurfaceVariant,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: value.clamp(0.0, 1.0),
-            minHeight: 8,
-            backgroundColor: color.withValues(alpha: 0.15),
-            valueColor: AlwaysStoppedAnimation(color),
+          borderRadius: BorderRadius.circular(AppSpacing.smallRadius / 2),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: value.clamp(0.0, 1.0)),
+            duration: const Duration(milliseconds: 450),
+            curve: Curves.easeOutCubic,
+            builder: (context, animated, _) => LinearProgressIndicator(
+              value: animated,
+              minHeight: 8,
+              backgroundColor: color.withValues(alpha: 0.12),
+              valueColor: AlwaysStoppedAnimation(color),
+            ),
           ),
         ),
       ],
-    );
-  }
-}
-
-// ── banner ────────────────────────────────────────────────────────────────
-
-class _BannerResult extends StatelessWidget {
-  const _BannerResult({required this.result, required this.config});
-
-  final PredictionResult result;
-  final AppConfig config;
-
-  @override
-  Widget build(BuildContext context) {
-    final positive = _isPositiveLabel(result.predictedClass);
-    final backgroundColor = switch (positive) {
-      true => _parseHexColor(config.resultDisplayPositiveClassColor),
-      false => _parseHexColor(config.resultDisplayNegativeClassColor),
-      null => Theme.of(context).colorScheme.primary,
-    };
-    final sorted = _sortedProbabilities(result);
-    final topProbability = sorted.isNotEmpty ? sorted.first.value : null;
-
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            result.predictedClass,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          if (config.resultDisplayShowProbability &&
-              topProbability != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _formatProbability(
-                topProbability,
-                config.resultDisplayProbabilityFormat,
-              ),
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(color: Colors.white70),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-// ── detailed ──────────────────────────────────────────────────────────────
-
-class _DetailedResult extends StatelessWidget {
-  const _DetailedResult({required this.result, required this.config});
-
-  final PredictionResult result;
-  final AppConfig config;
-
-  @override
-  Widget build(BuildContext context) {
-    final sorted = _sortedProbabilities(result);
-    return Card(
-      margin: const EdgeInsets.all(16),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Predicted class',
-                style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 4),
-            Text(
-              result.predictedClass,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            if (config.resultDisplayShowProbability) ...[
-              const SizedBox(height: 16),
-              Table(
-                columnWidths: const {
-                  0: FlexColumnWidth(),
-                  1: IntrinsicColumnWidth(),
-                },
-                children: [
-                  for (final entry in sorted)
-                    TableRow(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Text(
-                            entry.key,
-                            style: TextStyle(
-                              fontWeight: entry.key == result.predictedClass
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Text(
-                            _formatProbability(
-                              entry.value,
-                              config.resultDisplayProbabilityFormat,
-                            ),
-                            textAlign: TextAlign.right,
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
     );
   }
 }

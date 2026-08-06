@@ -3,12 +3,13 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import 'config/app_config_notifier.dart';
-import 'models/model_domain.dart';
+import 'screens/configuration_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/input_screen.dart';
 import 'screens/result_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/backend_manager.dart';
+import 'theme/app_theme.dart';
 
 // ── router ────────────────────────────────────────────────────────────────────
 
@@ -39,9 +40,14 @@ GoRouter buildRouter(BackendNotifier notifier) {
       GoRoute(path: '/error', builder: (_, __) => const _ErrorScreen()),
       GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
       GoRoute(
+        path: '/configuration',
+        builder: (_, state) =>
+            ConfigurationScreen(args: state.extra as ConfigurationScreenArgs),
+      ),
+      GoRoute(
         path: '/input',
         builder: (_, state) =>
-            InputScreen(initialDomain: state.extra as ModelDomain?),
+            InputScreen(initialArgs: state.extra as InputScreenArgs?),
       ),
       GoRoute(
         path: '/result',
@@ -67,20 +73,10 @@ class DiagnosticApp extends StatelessWidget {
     return MaterialApp.router(
       title: config.appTitle,
       debugShowCheckedModeBanner: false,
-      theme: _buildTheme(Brightness.light),
-      darkTheme: _buildTheme(Brightness.dark),
+      theme: AppTheme.build(Brightness.light),
+      darkTheme: AppTheme.build(Brightness.dark),
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       routerConfig: router,
-    );
-  }
-
-  static ThemeData _buildTheme(Brightness brightness) {
-    return ThemeData(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF1565C0),
-        brightness: brightness,
-      ),
-      useMaterial3: true,
     );
   }
 }
@@ -92,21 +88,44 @@ class _SplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    final theme = Theme.of(context);
+    return Scaffold(
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(strokeWidth: 3),
-            SizedBox(height: 24),
+            Container(
+              height: 72,
+              width: 72,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(
+                Icons.monitor_heart_outlined,
+                size: 36,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 28),
+            SizedBox(
+              width: 180,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: const LinearProgressIndicator(minHeight: 4),
+              ),
+            ),
+            const SizedBox(height: 24),
             Text(
               'Starting diagnostic engine…',
-              style: TextStyle(fontSize: 16),
+              style: theme.textTheme.titleMedium,
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               'This may take a few seconds on first launch.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -122,45 +141,62 @@ class _ErrorScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final notifier = context.watch<BackendNotifier>();
     final isRetrying = notifier.status == BackendStatus.starting;
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
+          constraints: const BoxConstraints(maxWidth: AppSpacing.narrowWidth),
           child: Padding(
             padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.error_outline,
-                  size: 64,
-                  color: Theme.of(context).colorScheme.error,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      height: 64,
+                      width: 64,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.error.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Icon(
+                        Icons.error_outline,
+                        size: 32,
+                        color: theme.colorScheme.error,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Backend failed to start',
+                      style: theme.textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      notifier.errorMessage ?? 'Unknown error.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    FilledButton.icon(
+                      onPressed: isRetrying ? null : notifier.retry,
+                      icon: isRetrying
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh),
+                      label: Text(isRetrying ? 'Retrying…' : 'Retry'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'Backend failed to start',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  notifier.errorMessage ?? 'Unknown error.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 28),
-                FilledButton.icon(
-                  onPressed: isRetrying ? null : notifier.retry,
-                  icon: isRetrying
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                  label: Text(isRetrying ? 'Retrying…' : 'Retry'),
-                ),
-              ],
+              ),
             ),
           ),
         ),

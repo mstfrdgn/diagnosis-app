@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../config/app_config_notifier.dart';
+import '../theme/app_theme.dart';
 
 /// Shows the location of `app_config.yaml`, lets the user open it in their
 /// system default editor, and reload it into [AppConfigNotifier] without
@@ -78,85 +79,128 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final config = context.watch<AppConfigNotifier>().config;
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Config file',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: SelectableText(
-                      _configPath ?? 'Locating app_config.yaml…',
-                      style: Theme.of(context).textTheme.bodyMedium,
+      body: Scrollbar(
+        child: SingleChildScrollView(
+          padding: AppSpacing.page,
+          child: Center(
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(maxWidth: AppSpacing.narrowWidth),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SectionHeader(
+                    title: 'Configuration file',
+                    subtitle:
+                        'Edit this YAML to change app-wide behaviour, then '
+                        'reload it without restarting.',
+                  ),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.description_outlined,
+                                  size: 18,
+                                  color: theme.colorScheme.onSurfaceVariant),
+                              const SizedBox(width: 8),
+                              Text('app_config.yaml',
+                                  style: theme.textTheme.titleSmall),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SelectableText(
+                            _configPath ?? 'Locating app_config.yaml…',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              FilledButton.icon(
+                                onPressed:
+                                    _configPath == null ? null : _openInEditor,
+                                icon: const Icon(Icons.edit_outlined, size: 20),
+                                label: const Text('Open in editor'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: _reloading ? null : _reloadConfig,
+                                icon: _reloading
+                                    ? const SizedBox.square(
+                                        dimension: 18,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.refresh, size: 20),
+                                label: Text(
+                                    _reloading ? 'Reloading…' : 'Reload'),
+                              ),
+                            ],
+                          ),
+                          if (_statusMessage != null) ...[
+                            const SizedBox(height: 16),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  _statusIsError
+                                      ? Icons.error_outline
+                                      : Icons.check_circle_outline,
+                                  size: 16,
+                                  color: _statusIsError
+                                      ? theme.colorScheme.error
+                                      : theme.colorScheme.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _statusMessage!,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: _statusIsError
+                                          ? theme.colorScheme.error
+                                          : theme.colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _configPath == null ? null : _openInEditor,
-                      icon: const Icon(Icons.edit_outlined),
-                      label: const Text('Open in editor'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _reloading ? null : _reloadConfig,
-                      icon: _reloading
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.refresh),
-                      label: Text(_reloading ? 'Reloading…' : 'Reload config'),
-                    ),
-                  ],
-                ),
-                if (_statusMessage != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    _statusMessage!,
-                    style: TextStyle(
-                      color: _statusIsError
-                          ? Theme.of(context).colorScheme.error
-                          : Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 32),
-                Text(
-                  'Current values',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
+                  const SizedBox(height: 32),
+                  const SectionHeader(title: 'Current values'),
+                  Card(
                     child: Column(
                       children: [
                         _ConfigRow('Title', config.appTitle),
+                        const Divider(height: 1, indent: 20, endIndent: 20),
                         _ConfigRow('Theme', config.appTheme),
+                        const Divider(height: 1, indent: 20, endIndent: 20),
                         _ConfigRow(
                           'Backend',
                           '${config.backendHost}:${config.backendPort}',
                         ),
+                        const Divider(height: 1, indent: 20, endIndent: 20),
                         _ConfigRow(
-                          'Result display style',
-                          config.resultDisplayStyle,
+                          'Probabilities',
+                          config.resultDisplayShowProbability
+                              ? 'shown'
+                              : 'hidden',
                         ),
+                        const Divider(height: 1, indent: 20, endIndent: 20),
                         _ConfigRow(
                           'CSV logging',
                           config.csvLoggingEnabled ? 'enabled' : 'disabled',
@@ -164,8 +208,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
           ),
         ),
@@ -182,12 +227,25 @@ class _ConfigRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      dense: true,
-      title: Text(label),
-      trailing: Text(
-        value,
-        style: Theme.of(context).textTheme.bodyMedium,
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ],
       ),
     );
   }
