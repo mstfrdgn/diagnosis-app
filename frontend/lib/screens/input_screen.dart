@@ -59,6 +59,7 @@ class _InputScreenState extends State<InputScreen> {
 
   ModelDomain? _domain;
   ModelConfiguration? _modelConfig;
+  String _modelPath = '';
   bool _loadingArgs = false;
   String? _argsError;
 
@@ -73,6 +74,7 @@ class _InputScreenState extends State<InputScreen> {
     if (args != null) {
       _domain = args.domain;
       _modelConfig = args.modelConfig;
+      _modelPath = args.modelPath;
     } else {
       _fetchArgs();
     }
@@ -101,6 +103,7 @@ class _InputScreenState extends State<InputScreen> {
       setState(() {
         _domain = domain;
         _modelConfig = modelConfig;
+        _modelPath = path;
       });
     } catch (e) {
       if (!mounted) return;
@@ -166,6 +169,7 @@ class _InputScreenState extends State<InputScreen> {
         domain: domain,
         result: result,
         inputs: Map<String, dynamic>.from(_values.value),
+        modelPath: _modelPath,
       ),
     );
     if (!mounted) return;

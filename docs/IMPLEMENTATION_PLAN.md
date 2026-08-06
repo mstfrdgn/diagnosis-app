@@ -6,12 +6,14 @@
 ┌─────────────────────────────────────────────────────────┐
 │                   Flutter Desktop App                     │
 │                                                           │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │  Home Screen │  │ Input Screen │  │ Result Screen  │  │
-│  │ (file pick)  │→ │ (dyn. form)  │→ │ + Eval Dialog  │  │
-│  └─────────────┘  └──────────────┘  └────────────────┘  │
-│          │                 │                  │           │
-│          └─────────────────▼──────────────────┘           │
+│  ┌────────────┐ ┌───────────────┐ ┌──────────┐ ┌───────┐│
+│  │Home Screen │ │ Configuration │ │  Grouped │ │Result ││
+│  │(pick model,│→│    Wizard     │→│   Input  │→│Screen ││
+│  │  recents)  │ │  (3 steps)    │ │ Screens  │ │+ Eval ││
+│  └────────────┘ └───────────────┘ └──────────┘ └───────┘│
+│        │                │              │           │    │
+│        └────────────────┴──┬───────────┴───────────┘    │
+│                            ▼                             │
 │                      API Service                          │
 │                   (http on localhost)                     │
 └────────────────────────┬────────────────────────────────┘
@@ -26,7 +28,7 @@
 └─────────────────────────────────────────────────────────┘
                          │
               Local filesystem only
-         (CSV log, config YAML, model file)
+   (per-model CSV logs, config YAML, model_configs.json, model file)
 ```
 
 **Key design decisions:**
@@ -34,7 +36,11 @@
 - All communication is HTTP on localhost (no network required).
 - The backend binary is bundled inside the Flutter app's assets and extracted at first run.
 - Config is a single YAML file editable by the user without recompiling.
-- CSV log is written incrementally (one row per session).
+- Per-model setup (groups, variable assignment, ranges) is captured once in the
+  Configuration Wizard and persisted per model file, so reopening a model skips
+  straight to its saved form.
+- CSV log is written incrementally (one row per session), to a separate file per
+  model so column sets never collide.
 
 ---
 
@@ -48,26 +54,33 @@ diagnostic_app/
 │   │   ├── app.dart                 MaterialApp, router
 │   │   ├── config/
 │   │   │   ├── app_config.dart      Dart model for app_config.yaml
+│   │   │   ├── app_config_notifier.dart  Holds live AppConfig, notifies on reload
 │   │   │   └── config_loader.dart   Reads YAML from assets or app-data dir
 │   │   ├── models/
 │   │   │   ├── orange_variable.dart Mirrors Orange Variable types
 │   │   │   ├── model_domain.dart    List of variables + class variable
+│   │   │   ├── model_configuration.dart  Groups, variable→group map, ranges
 │   │   │   ├── prediction_result.dart  Class + probabilities
 │   │   │   └── session_record.dart  One CSV row
 │   │   ├── screens/
-│   │   │   ├── home_screen.dart     Load model file, backend status indicator
-│   │   │   ├── input_screen.dart    Renders DynamicForm, submit button
+│   │   │   ├── home_screen.dart     Load model file, recent models, backend status
+│   │   │   ├── configuration_screen.dart  3-step wizard (groups/assign/ranges)
+│   │   │   ├── input_screen.dart    One page per group, Next/Predict
 │   │   │   ├── result_screen.dart   Shows PredictionResult widget
 │   │   │   └── settings_screen.dart Open/edit app_config.yaml
+│   │   ├── theme/
+│   │   │   └── app_theme.dart       Light/dark ThemeData, spacing, shared widgets
 │   │   ├── widgets/
-│   │   │   ├── dynamic_form.dart    Builds form fields from ModelDomain
+│   │   │   ├── dynamic_form.dart    Builds form fields for one group's variables
 │   │   │   ├── variable_field.dart  TextField (continuous) or Dropdown (discrete)
-│   │   │   ├── result_display.dart  Card/banner/detailed renderers (config-driven)
+│   │   │   ├── result_display.dart  Predicted class + per-class probabilities
 │   │   │   └── evaluation_dialog.dart  Doctor diagnosis + notes entry
 │   │   └── services/
 │   │       ├── backend_manager.dart Starts/stops backend subprocess, health-poll
 │   │       ├── api_service.dart     Typed HTTP client (dio or http package)
-│   │       └── csv_service.dart     Appends SessionRecord rows to CSV
+│   │       ├── model_config_store.dart   Reads/writes model_configs.json
+│   │       ├── model_config_notifier.dart  In-memory recents + saved configs
+│   │       └── csv_service.dart     Appends SessionRecord rows to a per-model CSV
 │   ├── assets/
 │   │   ├── config/app_config.yaml   Shipped default config
 │   │   └── backend/                 Populated by build script (see Phase 6)
@@ -309,11 +322,16 @@ Renders one input control based on `OrangeVariable.type`:
 
 File: `frontend/lib/widgets/dynamic_form.dart`
 
-- Accepts `ModelDomain` and a `ValueNotifier<Map<String, dynamic>>`.
-- Uses `Form` + `ListView.builder` over `domain.features`.
-- Renders one `VariableField` per feature.
+- Accepts the variables of **one group** and a `ValueNotifier<Map<String, dynamic>>`.
+- Renders one `VariableField` per variable.
 - `validate()` / `save()` follows standard Flutter form pattern.
-- Provides `Map<String, dynamic> collectValues()` for submission.
+- All groups share a single values map, so `InputScreen` can submit everything
+  the user entered across pages in one `/predict` call.
+
+`InputScreen` wraps these in a wizard: it builds one page per group from the
+saved `ModelConfiguration` (in the order the user created them), plus a trailing
+"Other" page for any variable left unassigned, and skips empty groups. The
+footer shows Back / Next, with the last page's button becoming **Predict**.
 
 ---
 
@@ -348,11 +366,18 @@ class PredictionResult {
 
 File: `frontend/lib/widgets/result_display.dart`
 
-Three renderers, selected by `config.resultDisplay.style`:
+A single card: the predicted class in large text, with a confidence chip and an
+"All classes" breakdown showing every label and its probability as a bar.
 
-**card** – Material card with class label in large text, probability bar chart.  
-**banner** – Full-width colored banner (color from config `positiveClassColor` / `negativeClassColor`), label centered.  
-**detailed** – Table showing all class labels with their probabilities.
+Driven by `config.result_display`:
+
+| Key | Effect |
+|-----|--------|
+| `show_probability` | Hides the confidence chip and the per-class breakdown when false |
+| `probability_format` | `percent` (`51.5%`) or `decimal` (`0.515`) |
+
+Colours and spacing come from `theme/app_theme.dart`, which builds both a light
+and a dark `ThemeData`; `app.dart` picks between them via `config.app.theme`.
 
 ---
 
@@ -388,11 +413,24 @@ class SessionRecord {
 
 File: `frontend/lib/services/csv_service.dart`
 
-- On first call, write header row from `SessionRecord` fields.
+- On first call, write header row derived from the loaded `ModelDomain`.
 - Subsequent calls append one data row.
-- File path: `{appDocumentsDir}/{config.csvLogging.outputPath}`.
 - Uses the `csv` package to handle quoting/escaping.
 - Header columns: `timestamp, [feature_names...], predicted_class, [class_probabilities...], doctor_diagnosis, notes`.
+
+**One CSV per model.** The header is built from the model's domain, so a shared
+log would append rows under a header describing entirely different columns.
+`CsvService.logFileNameFor()` derives the file name from the loaded model file
+and `config.csvLogging.outputPath`: `sessions.csv` plus a model
+`Dengue orange.pkcls` gives `{appDocumentsDir}/dengue_orange_sessions.csv`. The
+model name is lowercased and reduced to `[a-z0-9_]` so it is safe on every
+platform; any directory part of the configured path is preserved.
+
+**Failures are surfaced, never swallowed.** `appendRecord()` returns a
+`CsvWriteResult` instead of throwing — a log file that is locked or unwritable
+must not tear down the result screen. `ResultScreen` only prints
+"· saved to the session log" once a write has actually succeeded, and renders an
+error card with the target path and the OS reason when it has not.
 
 ---
 
@@ -467,6 +505,50 @@ Automation: `scripts/build_all.sh` / `scripts/build_all.ps1` that:
 
 ---
 
+## Phase 8 – Configuration Wizard, Grouped Input & Recent Models
+
+**Goal:** Let the user shape a model's data-entry form once, then reuse it.
+
+### 8.1 – Per-model configuration
+
+File: `frontend/lib/models/model_configuration.dart`
+```dart
+class ModelConfiguration {
+  final List<String> groups;                     // form pages, in order
+  final Map<String, String> variableGroups;      // variable name → group
+  final Map<String, VariableRange> variableRanges;  // continuous bounds
+}
+```
+
+### 8.2 – Configuration wizard
+
+File: `frontend/lib/screens/configuration_screen.dart`
+
+Three steps, with a stepper header and Back / Next / Finish footer:
+
+| Step | Screen | What it does |
+|------|--------|--------------|
+| 1 | **Create groups** | Name the sections; each becomes one page of the input form |
+| 2 | **Assign variables** | Drag (or pick from a menu) every variable onto a group; Next stays disabled until none are unassigned |
+| 3 | **Set ranges** | Min/max per continuous variable, pre-filled from the Orange domain where it provides a hint; empty means no bound |
+
+On Finish the configuration is saved and the user lands directly on the first
+input group.
+
+### 8.3 – Persistence and recent models
+
+File: `frontend/lib/services/model_config_store.dart`
+
+Reads/writes `{appDocumentsDir}/model_configs.json`, mapping absolute model file
+paths to their last-opened time plus saved `ModelConfiguration`. Any parse error
+falls back to an empty map rather than blocking startup.
+
+`ModelConfigNotifier` holds the loaded map in memory and is the source for the
+**Recent models** list on `HomeScreen`. Picking a recent model reloads it and
+reopens its saved configuration, so returning users skip straight to data entry.
+
+---
+
 ## Screen Flow
 
 ```
@@ -477,41 +559,51 @@ App start
    └─ Backend ready
          │
          └─ HomeScreen
-               │  Pick .pkcls file
+               │  Pick .pkcls file, or reopen one from "Recent models"
                │  POST /model/load
                │
-               └─ InputScreen (renders DynamicForm from GET /model/domain)
-                     │  Fill fields, press "Predict"
-                     │  POST /predict
+               └─ ConfigurationScreen  (GET /model/domain)
+                     │  Step 1  Create groups     — name the form sections
+                     │  Step 2  Assign variables  — every variable onto a group
+                     │  Step 3  Set ranges        — min/max per continuous variable
+                     │  Finish → saved to model_configs.json
                      │
-                     └─ ResultScreen
-                           │  Shows PredictionResult widget
+                     └─ InputScreen — one page per group
+                           │  Fill fields, "Next" through the groups
+                           │  Last page: "Predict" → POST /predict
                            │
-                           └─ [if evaluation enabled] EvaluationDialog
-                                 │  Doctor fills diagnosis
-                                 │  CsvService.append(SessionRecord)
+                           └─ ResultScreen
+                                 │  Shows PredictionResult widget
                                  │
-                                 └─ Back to InputScreen (for next patient)
+                                 ├─ [if evaluation enabled] EvaluationDialog
+                                 │        Doctor fills diagnosis + notes
+                                 │
+                                 ├─ CsvService.appendRecord(SessionRecord)
+                                 │        → {model}_sessions.csv
+                                 │        → on failure, error card (not "saved")
+                                 │
+                                 └─ "New patient" → back to InputScreen page 1
 ```
 
 ---
 
 ## Implementation Order & Milestones
 
-| # | Milestone | Deliverables |
-|---|-----------|-------------|
-| 1 | Backend skeleton | `main.py`, `/health`, routers wired, uvicorn running |
-| 2 | Orange integration | `model_service.py` loads a real `.pkcls`, `/model/domain` returns correct schema |
-| 3 | Prediction working | `/predict` returns class + probabilities for a test instance |
-| 4 | Flutter project + backend manager | App starts, splash, kills backend on exit |
-| 5 | Domain fetch + dynamic form | `InputScreen` renders correct fields for any loaded model |
-| 6 | End-to-end predict flow | Full path: load model → fill form → see result |
-| 7 | Evaluation dialog + CSV | Dialog appears, row saved to CSV |
-| 8 | Config-driven UI | All display style / dialog order settings take effect |
-| 9 | Settings screen | User can open and reload YAML |
-| 10 | PyInstaller bundle | Release binary works, extracted correctly by Flutter |
-| 11 | Windows build | `flutter build windows` produces working installer |
-| 12 | macOS build | `flutter build macos` produces working `.app` |
+| # | Milestone | Deliverables | Status |
+|---|-----------|-------------|--------|
+| 1 | Backend skeleton | `main.py`, `/health`, routers wired, uvicorn running | ✅ Done |
+| 2 | Orange integration | `model_service.py` loads a real `.pkcls`, `/model/domain` returns correct schema | ✅ Done |
+| 3 | Prediction working | `/predict` returns class + probabilities for a test instance | ✅ Done |
+| 4 | Flutter project + backend manager | App starts, splash, kills backend on exit | ✅ Done |
+| 5 | Domain fetch + dynamic form | `InputScreen` renders correct fields for any loaded model | ✅ Done |
+| 6 | End-to-end predict flow | Full path: load model → fill form → see result | ✅ Done |
+| 7 | Evaluation dialog + CSV | Dialog appears, row saved to CSV | ✅ Done |
+| 8 | Config-driven UI | All result display / dialog order settings take effect | ✅ Done |
+| 9 | Settings screen | User can open and reload YAML | ✅ Done |
+| 10 | Configuration Wizard + Grouped Input + Recent Models | 3-step wizard, one input page per group, per-model config persisted in `model_configs.json`, recents on Home | ✅ Done |
+| 11 | PyInstaller bundle | Release binary works, extracted correctly by Flutter | ☐ Open |
+| 12 | Windows build | `flutter build windows` produces working installer | ☐ Open |
+| 13 | macOS build | `flutter build macos` produces working `.app` | ☐ Open |
 
 ---
 

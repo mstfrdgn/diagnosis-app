@@ -17,11 +17,15 @@ class ResultScreenArgs {
     required this.domain,
     required this.result,
     required this.inputs,
+    required this.modelPath,
   });
 
   final ModelDomain domain;
   final PredictionResult result;
   final Map<String, dynamic> inputs;
+
+  /// Path of the loaded model file, which decides the per-model CSV log.
+  final String modelPath;
 }
 
 /// Shows a [PredictionResult] and, once the first frame is up, opens the
@@ -38,6 +42,7 @@ class ResultScreen extends StatefulWidget {
 
 class _ResultScreenState extends State<ResultScreen> {
   EvaluationResult? _evaluation;
+  CsvWriteResult? _csvResult;
   bool _handled = false;
 
   @override
@@ -69,11 +74,14 @@ class _ResultScreenState extends State<ResultScreen> {
         doctorDiagnosis: evaluation?.doctorDiagnosis,
         notes: evaluation?.notes,
       );
-      await const CsvService().appendRecord(
+      final csvResult = await const CsvService().appendRecord(
         record,
         domain: widget.args.domain,
+        modelPath: widget.args.modelPath,
         config: config,
       );
+      if (!mounted) return;
+      setState(() => _csvResult = csvResult);
     }
   }
 
@@ -81,6 +89,9 @@ class _ResultScreenState extends State<ResultScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final config = context.watch<AppConfigNotifier>().config;
+    final csvResult = _csvResult;
+    final csvFailure =
+        csvResult != null && !csvResult.succeeded ? csvResult : null;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Prediction result'),
@@ -110,10 +121,14 @@ class _ResultScreenState extends State<ResultScreen> {
                     const SizedBox(height: 16),
                     _EvaluationSummary(evaluation: _evaluation!),
                   ],
+                  if (csvFailure != null) ...[
+                    const SizedBox(height: 16),
+                    _CsvErrorNotice(result: csvFailure),
+                  ],
                   const SizedBox(height: 24),
                   Text(
                     'Recorded ${_formatTime(widget.args.result.timestamp)}'
-                    '${config.csvLoggingEnabled ? ' · saved to the session log' : ''}',
+                    '${csvResult != null && csvResult.succeeded ? ' · saved to the session log' : ''}',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
@@ -175,6 +190,56 @@ class _EvaluationSummary extends StatelessWidget {
               ),
             if (evaluation.notes != null)
               _SummaryRow(label: 'Notes', value: evaluation.notes!),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when the session could not be appended to the CSV log, so a failed
+/// write is never mistaken for a saved one.
+class _CsvErrorNotice extends StatelessWidget {
+  const _CsvErrorNotice({required this.result});
+
+  final CsvWriteResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      color: theme.colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.warning_amber_rounded,
+                size: 20, color: theme.colorScheme.error),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Not saved to the session log',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Could not write to ${result.path} — ${result.error}. '
+                    'Close the file if it is open in another program, then '
+                    'run this prediction again.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

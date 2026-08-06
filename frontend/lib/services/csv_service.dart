@@ -8,51 +8,114 @@ import '../config/app_config.dart';
 import '../models/model_domain.dart';
 import '../models/session_record.dart';
 
+/// Outcome of [CsvService.appendRecord].
+///
+/// The service never throws on I/O failure — a log file that is locked or
+/// unwritable must not tear down the result screen — so callers check
+/// [succeeded] and surface [error] themselves.
+class CsvWriteResult {
+  const CsvWriteResult.success(this.path) : error = null;
+  const CsvWriteResult.failure(this.path, this.error);
+
+  /// Absolute path of the log that was written, or that the write targeted.
+  final String path;
+
+  /// Human-readable reason the write failed, or null when it succeeded.
+  final String? error;
+
+  bool get succeeded => error == null;
+}
+
 /// Appends [SessionRecord]s to the CSV log configured by
 /// `config.csv_logging`. The header (and its column set) is written once,
 /// derived from [domain] so it stays stable across appends regardless of
 /// which fields a particular session happened to fill in.
+///
+/// Each model logs to its own file (see [logFileNameFor]).
 class CsvService {
   const CsvService();
 
   static const _converter = ListToCsvConverter();
 
-  Future<void> appendRecord(
+  Future<CsvWriteResult> appendRecord(
     SessionRecord record, {
     required ModelDomain domain,
+    required String modelPath,
     required AppConfig config,
   }) async {
-    final file = await _resolveFile(config);
-    final featureNames = domain.features.map((f) => f.name).toList();
-    final classLabels =
-        domain.classVar.values ?? record.probabilities.keys.toList();
-
-    final needsHeader = !await file.exists() || await file.length() == 0;
-
-    final sink = file.openWrite(mode: FileMode.append);
+    File? file;
     try {
+      file = await _resolveFile(modelPath, config);
+      final featureNames = domain.features.map((f) => f.name).toList();
+      final classLabels =
+          domain.classVar.values ?? record.probabilities.keys.toList();
+
+      final needsHeader = !await file.exists() || await file.length() == 0;
+
+      final buffer = StringBuffer();
       if (needsHeader) {
-        sink.write(
+        buffer.write(
           '${_converter.convert([
                 _buildHeader(featureNames, classLabels, config),
               ])}\r\n',
         );
       }
-      sink.write(
+      buffer.write(
         '${_converter.convert([
               _buildRow(record, featureNames, classLabels, config),
             ])}\r\n',
       );
-    } finally {
-      await sink.close();
+
+      await file.writeAsString(buffer.toString(), mode: FileMode.append);
+      return CsvWriteResult.success(file.path);
+    } on FileSystemException catch (e) {
+      return CsvWriteResult.failure(
+        file?.path ?? config.csvOutputPath,
+        e.osError?.message ?? e.message,
+      );
+    } catch (e) {
+      return CsvWriteResult.failure(file?.path ?? config.csvOutputPath, '$e');
     }
   }
 
-  Future<File> _resolveFile(AppConfig config) async {
+  Future<File> _resolveFile(String modelPath, AppConfig config) async {
     final appDir = await getApplicationDocumentsDirectory();
-    final file = File(p.join(appDir.path, config.csvOutputPath));
+    final file = File(
+      p.join(appDir.path, logFileNameFor(modelPath, config.csvOutputPath)),
+    );
     await file.parent.create(recursive: true);
     return file;
+  }
+
+  /// Log file name for [modelPath], derived from the configured
+  /// `csv_logging.output_path` ([configuredPath]).
+  ///
+  /// Every model gets its own file — `sessions.csv` plus a model
+  /// `Dengue orange.pkcls` becomes `dengue_orange_sessions.csv` — because the
+  /// header is built from the model's domain. Sharing one file across models
+  /// would append rows under a header describing entirely different columns.
+  ///
+  /// Any directory part of [configuredPath] is preserved. A [modelPath] with
+  /// no usable name falls back to [configuredPath] unchanged.
+  static String logFileNameFor(String modelPath, String configuredPath) {
+    final slug = _slug(p.basenameWithoutExtension(modelPath));
+    if (slug.isEmpty) return configuredPath;
+
+    final stem = p.basenameWithoutExtension(configuredPath);
+    final ext = p.extension(configuredPath);
+    final name = stem.isEmpty ? '$slug$ext' : '${slug}_$stem$ext';
+
+    final dir = p.dirname(configuredPath);
+    return dir == '.' ? name : p.join(dir, name);
+  }
+
+  /// Lowercases [value] and reduces it to `[a-z0-9_]` so it is safe as a file
+  /// name component on every platform.
+  static String _slug(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
   }
 
   List<String> _buildHeader(
