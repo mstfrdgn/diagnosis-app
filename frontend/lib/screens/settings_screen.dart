@@ -24,10 +24,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _statusMessage;
   bool _statusIsError = false;
 
+  /// Shared by the [Scrollbar] and the body it wraps; see the note in
+  /// `home_screen.dart` for why the fallback controller will not do.
+  final _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _loadPaths();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPaths() async {
@@ -116,7 +126,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: Scrollbar(
+        controller: _scrollController,
         child: SingleChildScrollView(
+          controller: _scrollController,
           padding: AppSpacing.page,
           child: Center(
             child: ConstrainedBox(

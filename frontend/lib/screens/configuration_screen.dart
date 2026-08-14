@@ -76,6 +76,10 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
   /// when the model was loaded, then whatever the user makes of it.
   late final TextEditingController _descriptionController;
 
+  /// Shared by the [Scrollbar] and the step body it wraps; see the note in
+  /// `home_screen.dart` for why the fallback controller will not do.
+  final _scrollController = ScrollController();
+
   bool _saving = false;
 
   @override
@@ -116,6 +120,7 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
     _newGroupController.dispose();
     _newGroupFocus.dispose();
     _descriptionController.dispose();
+    _scrollController.dispose();
     for (final controller in _minControllers.values) {
       controller.dispose();
     }
@@ -329,7 +334,9 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
           ),
           Expanded(
             child: Scrollbar(
+              controller: _scrollController,
               child: SingleChildScrollView(
+                controller: _scrollController,
                 padding: AppSpacing.page,
                 child: Center(
                   child: ConstrainedBox(

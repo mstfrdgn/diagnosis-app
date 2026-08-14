@@ -29,6 +29,18 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loading = false;
   String? _error;
 
+  /// Shared by the [Scrollbar] and the body it wraps. Without an explicit
+  /// controller the Scrollbar falls back to the PrimaryScrollController,
+  /// which desktop platforms do not attach, so it never finds a scroll
+  /// position and asserts as soon as the user scrolls.
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _pickModel() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -141,7 +153,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: Scrollbar(
+        controller: _scrollController,
         child: SingleChildScrollView(
+          controller: _scrollController,
           padding: AppSpacing.page,
           child: Center(
             child: ConstrainedBox(

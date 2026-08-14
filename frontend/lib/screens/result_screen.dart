@@ -46,10 +46,20 @@ class _ResultScreenState extends State<ResultScreen> {
   CsvWriteResult? _csvResult;
   bool _handled = false;
 
+  /// Shared by the [Scrollbar] and the body it wraps; see the note in
+  /// `home_screen.dart` for why the fallback controller will not do.
+  final _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _handlePostResult());
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _handlePostResult() async {
@@ -117,7 +127,9 @@ class _ResultScreenState extends State<ResultScreen> {
         ],
       ),
       body: Scrollbar(
+        controller: _scrollController,
         child: SingleChildScrollView(
+          controller: _scrollController,
           padding: AppSpacing.page,
           child: Center(
             child: ConstrainedBox(
