@@ -1,3 +1,5 @@
+import 'package:path/path.dart' as p;
+
 /// A per-variable min/max override set on the Configuration Screen.
 /// Either bound may be `null`, meaning "use the model's own hint".
 class VariableRangeOverride {
@@ -68,41 +70,82 @@ class ModelConfiguration {
 }
 
 /// One entry in the local "recently used models" store: the model's file
-/// path, when it was last opened, and its saved configuration (if the user
-/// has completed the Configuration Screen for it at least once).
+/// path, the name and description the user sees it under, when it was first
+/// configured and last opened, and its saved configuration (if the user has
+/// completed the Configuration Screen for it at least once).
 class ModelConfigEntry {
   const ModelConfigEntry({
     required this.path,
+    required this.createdAt,
     required this.lastOpened,
+    this.displayName,
+    this.description,
     this.configuration,
   });
 
   final String path;
+
+  /// When this model was first added to the store. Written once and never
+  /// updated, so the Home Screen can show how long a model has been around.
+  final DateTime createdAt;
   final DateTime lastOpened;
+
+  /// User-chosen name for the model. Null until the user renames it, in
+  /// which case [effectiveName] falls back to the model's file name.
+  final String? displayName;
+
+  /// One-line summary of the model — generated from its domain the first
+  /// time it is loaded, then owned by the user (editable in the wizard).
+  final String? description;
+
   final ModelConfiguration? configuration;
+
+  /// The name to show for this model, and the basis for its CSV file names.
+  String get effectiveName {
+    final name = displayName?.trim();
+    if (name != null && name.isNotEmpty) return name;
+    return p.basename(path);
+  }
 
   factory ModelConfigEntry.fromJson(String path, Map<String, dynamic> json) {
     final rawConfig = json['configuration'] as Map<String, dynamic>?;
+    final lastOpened = DateTime.parse(json['lastOpened'] as String);
+    final rawCreatedAt = json['createdAt'] as String?;
     return ModelConfigEntry(
       path: path,
-      lastOpened: DateTime.parse(json['lastOpened'] as String),
+      // Entries written before `createdAt` existed only know when they were
+      // last opened; treating that as the creation time is the closest
+      // truthful answer available.
+      createdAt:
+          rawCreatedAt == null ? lastOpened : DateTime.parse(rawCreatedAt),
+      lastOpened: lastOpened,
+      displayName: json['displayName'] as String?,
+      description: json['description'] as String?,
       configuration:
           rawConfig == null ? null : ModelConfiguration.fromJson(rawConfig),
     );
   }
 
   Map<String, dynamic> toJson() => {
+        'createdAt': createdAt.toIso8601String(),
         'lastOpened': lastOpened.toIso8601String(),
+        if (displayName != null) 'displayName': displayName,
+        if (description != null) 'description': description,
         if (configuration != null) 'configuration': configuration!.toJson(),
       };
 
   ModelConfigEntry copyWith({
     DateTime? lastOpened,
+    String? displayName,
+    String? description,
     ModelConfiguration? configuration,
   }) {
     return ModelConfigEntry(
       path: path,
+      createdAt: createdAt,
       lastOpened: lastOpened ?? this.lastOpened,
+      displayName: displayName ?? this.displayName,
+      description: description ?? this.description,
       configuration: configuration ?? this.configuration,
     );
   }

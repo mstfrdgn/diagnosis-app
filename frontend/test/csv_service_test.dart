@@ -38,5 +38,27 @@ void main() {
     test('falls back to the configured path when no model is loaded', () {
       expect(CsvService.logFileNameFor('', 'sessions.csv'), 'sessions.csv');
     });
+
+    test('uses the display name once the model has been renamed', () {
+      expect(
+        CsvService.logFileNameFor(
+          r'C:\models\dengue_model.pkcls',
+          'sessions.csv',
+          displayName: 'Dengue Pediatric',
+        ),
+        'dengue_pediatric_sessions.csv',
+      );
+    });
+
+    test('ignores a blank display name', () {
+      expect(
+        CsvService.logFileNameFor(
+          r'C:\models\dengue_model.pkcls',
+          'sessions.csv',
+          displayName: '   ',
+        ),
+        'dengue_model_sessions.csv',
+      );
+    });
   });
 }

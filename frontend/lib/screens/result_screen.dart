@@ -7,6 +7,7 @@ import '../models/model_domain.dart';
 import '../models/prediction_result.dart';
 import '../models/session_record.dart';
 import '../services/csv_service.dart';
+import '../services/model_config_notifier.dart';
 import '../theme/app_theme.dart';
 import '../widgets/evaluation_dialog.dart';
 import '../widgets/result_display.dart';
@@ -56,13 +57,21 @@ class _ResultScreenState extends State<ResultScreen> {
     _handled = true;
 
     final config = context.read<AppConfigNotifier>().config;
+    final modelDisplayName =
+        context.read<ModelConfigNotifier>().displayNameFor(widget.args.modelPath);
 
     EvaluationResult? evaluation;
     if (config.evaluationDialogEnabled &&
         config.evaluationDialogAutoOpenAfterResult) {
-      evaluation = await EvaluationDialog.show(context, config: config);
+      // Ask first: declining skips the form and logs the session with no
+      // doctor diagnosis rather than making the user dismiss an empty dialog.
+      final wanted = await EvaluationDialog.confirm(context);
       if (!mounted) return;
-      setState(() => _evaluation = evaluation);
+      if (wanted) {
+        evaluation = await EvaluationDialog.show(context, config: config);
+        if (!mounted) return;
+        setState(() => _evaluation = evaluation);
+      }
     }
 
     if (config.csvLoggingEnabled) {
@@ -79,6 +88,7 @@ class _ResultScreenState extends State<ResultScreen> {
         domain: widget.args.domain,
         modelPath: widget.args.modelPath,
         config: config,
+        modelDisplayName: modelDisplayName,
       );
       if (!mounted) return;
       setState(() => _csvResult = csvResult);

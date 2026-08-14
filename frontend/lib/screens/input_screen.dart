@@ -1,5 +1,8 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../config/app_config_notifier.dart';
@@ -8,6 +11,7 @@ import '../models/model_domain.dart';
 import '../models/orange_variable.dart';
 import '../models/prediction_result.dart';
 import '../services/api_service.dart';
+import '../services/batch_prediction_service.dart';
 import '../services/model_config_notifier.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dynamic_form.dart';
@@ -178,6 +182,82 @@ class _InputScreenState extends State<InputScreen> {
     setState(() => _groupIndex = 0);
   }
 
+  // ── batch prediction ─────────────────────────────────────────────────────
+
+  /// Runs a whole file of cases through the model instead of one typed form:
+  /// pick a CSV or Excel workbook, check it has a column per feature, predict
+  /// every row, and write the predictions out as a new CSV.
+  Future<void> _batchPredict() async {
+    final domain = _domain;
+    if (domain == null) return;
+
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['csv', 'xlsx'],
+      dialogTitle: 'Select a CSV or Excel file of cases',
+    );
+    final inputPath = picked?.files.single.path;
+    if (inputPath == null || !mounted) return;
+
+    final api = context.read<ApiService>();
+    final config = context.read<AppConfigNotifier>().config;
+    final displayName =
+        context.read<ModelConfigNotifier>().displayNameFor(_modelPath);
+    final progress = ValueNotifier<_BatchProgress>(
+      const _BatchProgress(done: 0, total: 0),
+    );
+    final navigator = Navigator.of(context, rootNavigator: true);
+
+    // Unawaited on purpose: the dialog stays up until we pop it below.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _BatchProgressDialog(
+        fileName: p.basename(inputPath),
+        progress: progress,
+      ),
+    );
+
+    try {
+      final result = await BatchPredictionService(api).run(
+        inputPath: inputPath,
+        domain: domain,
+        modelPath: _modelPath,
+        config: config,
+        modelDisplayName: displayName,
+        onProgress: (done, total) =>
+            progress.value = _BatchProgress(done: done, total: total),
+      );
+      navigator.pop();
+      if (!mounted) return;
+      await _BatchSummaryDialog.show(context, result: result);
+    } on BatchColumnMismatchException catch (e) {
+      navigator.pop();
+      if (!mounted) return;
+      await _BatchErrorDialog.show(
+        context,
+        title: 'Those columns don’t match the model',
+        message:
+            'The model needs a column for every one of its ${BatchPredictionService.requiredColumns(domain).length} '
+            'input variables, and ${e.missing.length} '
+            '${e.missing.length == 1 ? 'is' : 'are'} missing from '
+            '${p.basename(inputPath)}. Nothing was predicted.',
+        missing: e.missing,
+        found: e.found,
+      );
+    } catch (e) {
+      navigator.pop();
+      if (!mounted) return;
+      await _BatchErrorDialog.show(
+        context,
+        title: 'Batch prediction failed',
+        message: e.toString(),
+      );
+    } finally {
+      progress.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -215,6 +295,17 @@ class _InputScreenState extends State<InputScreen> {
               ],
             ],
           ),
+          actions: [
+            if (domain != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: TextButton.icon(
+                  onPressed: _predicting ? null : _batchPredict,
+                  icon: const Icon(Icons.upload_file_outlined, size: 20),
+                  label: const Text('Batch predict from CSV'),
+                ),
+              ),
+          ],
           bottom: hasGroups
               ? PreferredSize(
                   preferredSize: const Size.fromHeight(3),
@@ -337,6 +428,254 @@ class _InputScreenState extends State<InputScreen> {
               ],
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── batch prediction dialogs ─────────────────────────────────────────────────
+
+class _BatchProgress {
+  const _BatchProgress({required this.done, required this.total});
+
+  final int done;
+  final int total;
+
+  /// Null while the file is still being read, which drives an indeterminate
+  /// bar rather than a bar stuck at zero.
+  double? get fraction => total == 0 ? null : done / total;
+}
+
+/// Modal shown while the rows are being sent to `/predict`. The run cannot
+/// be cancelled mid-way — a partial output file would be indistinguishable
+/// from a complete one — so it offers no dismiss.
+class _BatchProgressDialog extends StatelessWidget {
+  const _BatchProgressDialog({
+    required this.fileName,
+    required this.progress,
+  });
+
+  final String fileName;
+  final ValueListenable<_BatchProgress> progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('Predicting…'),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      content: SizedBox(
+        width: 380,
+        child: ValueListenableBuilder<_BatchProgress>(
+          valueListenable: progress,
+          builder: (context, value, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                fileName,
+                style: theme.textTheme.bodyMedium,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 16),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: value.fraction,
+                  minHeight: 6,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                value.total == 0
+                    ? 'Reading the file…'
+                    : 'Row ${value.done} of ${value.total}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "X rows processed, saved to {filename}" once the run finishes.
+class _BatchSummaryDialog extends StatelessWidget {
+  const _BatchSummaryDialog({required this.result});
+
+  final BatchPredictionResult result;
+
+  static Future<void> show(
+    BuildContext context, {
+    required BatchPredictionResult result,
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => _BatchSummaryDialog(result: result),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return AlertDialog(
+      icon: Container(
+        height: 44,
+        width: 44,
+        decoration: BoxDecoration(
+          color: scheme.primary.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(Icons.task_alt, size: 22, color: scheme.primary),
+      ),
+      title: const Text('Batch prediction complete'),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${result.rowCount} row${result.rowCount == 1 ? '' : 's'} '
+              'processed, saved to ${p.basename(result.outputPath)}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            if (result.failureCount > 0) ...[
+              const SizedBox(height: 10),
+              Text(
+                '${result.failureCount} row'
+                '${result.failureCount == 1 ? '' : 's'} could not be '
+                'predicted and ${result.failureCount == 1 ? 'was' : 'were'} '
+                'written out with an empty prediction.',
+                style: theme.textTheme.bodySmall?.copyWith(color: scheme.error),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              result.outputPath,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Explains why a batch could not run. For a column mismatch it names every
+/// missing column, since that is exactly what the user has to go and fix.
+class _BatchErrorDialog extends StatelessWidget {
+  const _BatchErrorDialog({
+    required this.title,
+    required this.message,
+    this.missing = const [],
+    this.found = const [],
+  });
+
+  final String title;
+  final String message;
+  final List<String> missing;
+  final List<String> found;
+
+  static Future<void> show(
+    BuildContext context, {
+    required String title,
+    required String message,
+    List<String> missing = const [],
+    List<String> found = const [],
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => _BatchErrorDialog(
+        title: title,
+        message: message,
+        missing: missing,
+        found: found,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return AlertDialog(
+      icon: Container(
+        height: 44,
+        width: 44,
+        decoration: BoxDecoration(
+          color: scheme.error.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(Icons.error_outline, size: 22, color: scheme.error),
+      ),
+      title: Text(title),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(message, style: theme.textTheme.bodyMedium),
+              if (missing.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text('Missing columns', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.error.withValues(alpha: 0.06),
+                    borderRadius:
+                        BorderRadius.circular(AppSpacing.smallRadius),
+                    border: Border.all(
+                      color: scheme.error.withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Text(
+                    missing.join('\n'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontFamily: 'monospace',
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+              if (found.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Columns found in the file: ${found.join(', ')}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
         ),
       ],
     );

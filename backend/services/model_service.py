@@ -39,6 +39,11 @@ class ModelService:
     def path(self) -> Optional[str]:
         return self._path
 
+    @property
+    def model_type(self) -> Optional[str]:
+        """Class name of the loaded classifier, e.g. ``TreeModel``."""
+        return type(self._model).__name__ if self._model is not None else None
+
     # ── domain introspection ───────────────────────────────────────────────────
 
     def get_domain_response(self) -> DomainResponse:
@@ -46,7 +51,11 @@ class ModelService:
         domain = self._model.domain  # type: ignore[union-attr]
         features = [self._var_to_info(v, "feature") for v in domain.attributes]
         class_info = self._var_to_info(domain.class_var, "class")
-        return DomainResponse(features=features, class_var=class_info)
+        return DomainResponse(
+            features=features,
+            class_var=class_info,
+            model_type=self.model_type,
+        )
 
     @staticmethod
     def _var_to_info(var: Orange.data.Variable, role: str) -> VariableInfo:

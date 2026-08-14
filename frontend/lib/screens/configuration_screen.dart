@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../models/model_configuration.dart';
+import '../models/model_description.dart';
 import '../models/model_domain.dart';
 import '../models/orange_variable.dart';
 import '../services/model_config_notifier.dart';
@@ -71,14 +72,22 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
   final _newGroupFocus = FocusNode();
   String? _newGroupError;
 
+  /// The model's one-line summary. Pre-filled with the description generated
+  /// when the model was loaded, then whatever the user makes of it.
+  late final TextEditingController _descriptionController;
+
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    final existing = context
-        .read<ModelConfigNotifier>()
-        .configurationFor(widget.args.modelPath);
+    final notifier = context.read<ModelConfigNotifier>();
+    final existing = notifier.configurationFor(widget.args.modelPath);
+
+    _descriptionController = TextEditingController(
+      text: notifier.descriptionFor(widget.args.modelPath) ??
+          describeModel(widget.args.domain),
+    );
 
     _groups.addAll(existing?.groups ?? const []);
     for (final variable in _assignableVariables) {
@@ -106,6 +115,7 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
   void dispose() {
     _newGroupController.dispose();
     _newGroupFocus.dispose();
+    _descriptionController.dispose();
     for (final controller in _minControllers.values) {
       controller.dispose();
     }
@@ -269,9 +279,11 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
     );
 
     final router = GoRouter.of(context);
-    await context
-        .read<ModelConfigNotifier>()
-        .saveConfiguration(widget.args.modelPath, modelConfig);
+    await context.read<ModelConfigNotifier>().saveConfiguration(
+          widget.args.modelPath,
+          modelConfig,
+          description: _descriptionController.text,
+        );
     if (!mounted) return;
     setState(() => _saving = false);
 
@@ -355,6 +367,28 @@ class _ConfigurationScreenState extends State<ConfigurationScreen> {
               'one page of the data-entry form, in the order you create them.',
         ),
         const SizedBox(height: 24),
+        const SectionHeader(
+          title: 'Description',
+          subtitle: 'Read from the model when it was loaded — rewrite it to '
+              'say whatever is useful to you.',
+        ),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: _descriptionController,
+              minLines: 2,
+              maxLines: 4,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Model description',
+                hintText: 'What this model is for',
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+        const SectionHeader(title: 'Add a group'),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),

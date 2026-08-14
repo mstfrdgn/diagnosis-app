@@ -99,6 +99,10 @@ class VariableField extends StatelessWidget {
         ),
         keyboardType:
             const TextInputType.numberWithOptions(decimal: true, signed: true),
+        // Re-run [validator] on every keystroke once the user has touched the
+        // field, so an out-of-range number is flagged as it is typed instead
+        // of only when the form is submitted.
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         validator: (input) {
           if (input == null || input.trim().isEmpty) {
             return null; // empty is a valid "unknown" value

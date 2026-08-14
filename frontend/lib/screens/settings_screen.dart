@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../config/app_config_notifier.dart';
+import '../services/csv_service.dart';
 import '../theme/app_theme.dart';
 
 /// Shows the location of `app_config.yaml`, lets the user open it in their
 /// system default editor, and reload it into [AppConfigNotifier] without
-/// restarting the app.
+/// restarting the app. Also shows where session CSV logs are written.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -18,6 +19,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String? _configPath;
+  String? _csvDirPath;
   bool _reloading = false;
   String? _statusMessage;
   bool _statusIsError = false;
@@ -25,13 +27,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadPath();
+    _loadPaths();
   }
 
-  Future<void> _loadPath() async {
-    final path = await context.read<AppConfigNotifier>().configFilePath();
+  Future<void> _loadPaths() async {
+    final notifier = context.read<AppConfigNotifier>();
+    final path = await notifier.configFilePath();
+    final csvDir = await const CsvService().logDirectory(notifier.config);
     if (!mounted) return;
-    setState(() => _configPath = path);
+    setState(() {
+      _configPath = path;
+      _csvDirPath = csvDir.path;
+    });
   }
 
   Future<void> _openInEditor() async {
@@ -54,6 +61,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// Opens the session-log directory in the platform file manager, creating
+  /// it first — it does not exist until the first prediction is logged.
+  Future<void> _openCsvFolder() async {
+    final path = _csvDirPath;
+    if (path == null) return;
+
+    try {
+      await Directory(path).create(recursive: true);
+      if (Platform.isWindows) {
+        // explorer.exe exits non-zero even when it opened the window, so its
+        // exit code says nothing about success.
+        await Process.run('explorer', [path]);
+      } else if (Platform.isMacOS) {
+        await Process.run('open', [path]);
+      } else {
+        await Process.run('xdg-open', [path]);
+      }
+      _setStatus('Opened $path.');
+    } catch (e) {
+      _setStatus('Could not open folder: $e', isError: true);
+    }
+  }
+
   Future<void> _reloadConfig() async {
     setState(() {
       _reloading = true;
@@ -61,6 +91,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
     try {
       await context.read<AppConfigNotifier>().reload();
+      // output_path may have moved the logs elsewhere.
+      await _loadPaths();
       _setStatus('Config reloaded.');
     } catch (e) {
       _setStatus('Failed to reload config: $e', isError: true);
@@ -176,6 +208,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ],
                             ),
                           ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  SectionHeader(
+                    title: 'Session logs',
+                    subtitle: config.csvLoggingEnabled
+                        ? 'Every prediction is appended to a CSV in this '
+                            'folder — one file per model.'
+                        : 'CSV logging is disabled in app_config.yaml; '
+                            'nothing is being written.',
+                  ),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.folder_outlined,
+                                  size: 18,
+                                  color: theme.colorScheme.onSurfaceVariant),
+                              const SizedBox(width: 8),
+                              Text('CSV folder',
+                                  style: theme.textTheme.titleSmall),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SelectableText(
+                            _csvDirPath ?? 'Locating the log folder…',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          OutlinedButton.icon(
+                            onPressed:
+                                _csvDirPath == null ? null : _openCsvFolder,
+                            icon: const Icon(Icons.folder_open_outlined,
+                                size: 20),
+                            label: const Text('Open folder'),
+                          ),
                         ],
                       ),
                     ),

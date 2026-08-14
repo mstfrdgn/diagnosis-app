@@ -6,11 +6,13 @@ import 'package:provider/provider.dart';
 
 import '../config/app_config_notifier.dart';
 import '../models/model_configuration.dart';
+import '../models/model_description.dart';
 import '../services/api_service.dart';
 import '../services/backend_manager.dart';
 import '../services/model_config_notifier.dart';
 import '../theme/app_theme.dart';
 import 'configuration_screen.dart';
+import 'input_screen.dart';
 
 /// Lets the user pick a `.pkcls` Orange model file (or reopen a recently
 /// used one), loads it on the backend, and – on success – navigates to
@@ -38,7 +40,39 @@ class _HomeScreenState extends State<HomeScreen> {
     await _loadModel(path);
   }
 
-  Future<void> _loadModel(String path) async {
+  /// Tapping a recent model that already has a saved configuration is
+  /// ambiguous — the user may want to run a case or to change the setup — so
+  /// ask. An unconfigured model can only go one way: into the wizard.
+  Future<void> _openRecent(ModelConfigEntry entry) async {
+    final configuration = entry.configuration;
+    if (configuration == null) {
+      await _loadModel(entry.path);
+      return;
+    }
+    final action = await _RecentModelActionDialog.show(context, entry: entry);
+    if (action == null || !mounted) return;
+    await _loadModel(
+      entry.path,
+      startWithConfiguration:
+          action == _RecentModelAction.startDiagnosis ? configuration : null,
+    );
+  }
+
+  /// Renames a recent model. The new name also decides the file its future
+  /// sessions are logged to; logs written under the old name stay where they
+  /// are, which is why the dialog says so.
+  Future<void> _renameModel(ModelConfigEntry entry) async {
+    final name = await _RenameModelDialog.show(context, entry: entry);
+    if (name == null || !mounted) return;
+    await context.read<ModelConfigNotifier>().setDisplayName(entry.path, name);
+  }
+
+  /// Loads [path] on the backend, then goes to the input screen when
+  /// [startWithConfiguration] is supplied, or to the configuration wizard.
+  Future<void> _loadModel(
+    String path, {
+    ModelConfiguration? startWithConfiguration,
+  }) async {
     setState(() {
       _loading = true;
       _error = null;
@@ -48,9 +82,24 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final domain = await context.read<ApiService>().loadModel(path);
       if (!mounted) return;
-      await context.read<ModelConfigNotifier>().recordOpened(path);
+      // The generated summary is only kept for models that do not have one
+      // yet; recordOpened never overwrites a description the user edited.
+      await context
+          .read<ModelConfigNotifier>()
+          .recordOpened(path, autoDescription: describeModel(domain));
       if (!mounted) return;
       setState(() => _loading = false);
+      if (startWithConfiguration != null) {
+        context.push(
+          '/input',
+          extra: InputScreenArgs(
+            domain: domain,
+            modelPath: path,
+            modelConfig: startWithConfiguration,
+          ),
+        );
+        return;
+      }
       context.push(
         '/configuration',
         extra: ConfigurationScreenArgs(domain: domain, modelPath: path),
@@ -136,7 +185,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             _RecentModelTile(
                               entry: recentModels[i],
                               enabled: !_loading,
-                              onTap: () => _loadModel(recentModels[i].path),
+                              onTap: () => _openRecent(recentModels[i]),
+                              onRename: () => _renameModel(recentModels[i]),
                             ),
                           ],
                         ],
@@ -326,46 +376,248 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
+/// What the user chose to do with an already-configured recent model.
+enum _RecentModelAction { startDiagnosis, reconfigure }
+
+/// Asked when a recent model already has a saved configuration.
+class _RecentModelActionDialog extends StatelessWidget {
+  const _RecentModelActionDialog({required this.entry});
+
+  final ModelConfigEntry entry;
+
+  static Future<_RecentModelAction?> show(
+    BuildContext context, {
+    required ModelConfigEntry entry,
+  }) {
+    return showDialog<_RecentModelAction>(
+      context: context,
+      builder: (_) => _RecentModelActionDialog(entry: entry),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final groups = entry.configuration?.groups.length ?? 0;
+    return AlertDialog(
+      icon: Container(
+        height: 44,
+        width: 44,
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primary.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(Icons.insert_drive_file_outlined,
+            size: 22, color: theme.colorScheme.primary),
+      ),
+      title: Text(entry.effectiveName),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      content: SizedBox(
+        width: 420,
+        child: Text(
+          'This model is already configured '
+          '($groups ${groups == 1 ? 'group' : 'groups'}). Start entering '
+          'patient data, or change the setup first?',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      actions: [
+        TextButton.icon(
+          onPressed: () =>
+              Navigator.of(context).pop(_RecentModelAction.reconfigure),
+          icon: const Icon(Icons.tune, size: 20),
+          label: const Text('Reconfigure'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.icon(
+          onPressed: () =>
+              Navigator.of(context).pop(_RecentModelAction.startDiagnosis),
+          icon: const Icon(Icons.play_arrow, size: 20),
+          label: const Text('Start Diagnosis'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Renames a recent model. Clearing the field is allowed and puts the model
+/// back under its file name, so a rename is never a one-way door.
+class _RenameModelDialog extends StatefulWidget {
+  const _RenameModelDialog({required this.entry});
+
+  final ModelConfigEntry entry;
+
+  static Future<String?> show(
+    BuildContext context, {
+    required ModelConfigEntry entry,
+  }) {
+    return showDialog<String>(
+      context: context,
+      builder: (_) => _RenameModelDialog(entry: entry),
+    );
+  }
+
+  @override
+  State<_RenameModelDialog> createState() => _RenameModelDialogState();
+}
+
+class _RenameModelDialogState extends State<_RenameModelDialog> {
+  late final _controller =
+      TextEditingController(text: widget.entry.displayName ?? '');
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_controller.text);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('Rename model'),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+              decoration: InputDecoration(
+                labelText: 'Display name',
+                hintText: p.basename(widget.entry.path),
+                prefixIcon: const Icon(Icons.label_outline, size: 20),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Shown on this screen, and used to name the session log new '
+              'predictions are written to. Logs already saved under the old '
+              'name are left as they are. Leave it empty to go back to the '
+              'file name.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(onPressed: _submit, child: const Text('Save')),
+      ],
+    );
+  }
+}
+
 class _RecentModelTile extends StatelessWidget {
   const _RecentModelTile({
     required this.entry,
     required this.enabled,
     required this.onTap,
+    required this.onRename,
   });
 
   final ModelConfigEntry entry;
   final bool enabled;
   final VoidCallback onTap;
+  final VoidCallback onRename;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final configured = entry.configuration != null;
+    final description = entry.description;
+    final subtitleStyle =
+        theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+
     return ListTile(
       enabled: enabled,
+      isThreeLine: true,
       leading: Container(
         height: 36,
         width: 36,
         decoration: BoxDecoration(
-          color: theme.colorScheme.primary.withValues(alpha: 0.10),
+          color: scheme.primary.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Icon(Icons.insert_drive_file_outlined,
-            size: 18, color: theme.colorScheme.primary),
+            size: 18, color: scheme.primary),
       ),
-      title: Text(p.basename(entry.path), style: theme.textTheme.titleSmall),
-      subtitle: Text(
-        configured
-            ? '${entry.configuration!.groups.length} groups configured'
-            : 'Not configured yet',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-        overflow: TextOverflow.ellipsis,
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              entry.effectiveName,
+              style: theme.textTheme.titleSmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            onPressed: enabled ? onRename : null,
+            icon: const Icon(Icons.edit_outlined, size: 16),
+            tooltip: 'Rename model',
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+            padding: EdgeInsets.zero,
+          ),
+        ],
       ),
-      trailing: Icon(Icons.chevron_right,
-          color: theme.colorScheme.onSurfaceVariant),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (description != null && description.isNotEmpty)
+            Text(description, style: subtitleStyle, maxLines: 2,
+                overflow: TextOverflow.ellipsis),
+          Text(
+            configured
+                ? '${entry.configuration!.groups.length} groups configured'
+                : 'Not configured yet',
+            style: subtitleStyle,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            'Created ${_formatDateTime(entry.createdAt)} · '
+            'Last opened ${_formatDateTime(entry.lastOpened)}',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+      trailing: Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
       onTap: onTap,
     );
   }
+}
+
+/// `14 Aug 2026, 15:04` — short enough for a list row and unambiguous about
+/// the month, which a numeric date would not be across locales.
+String _formatDateTime(DateTime time) {
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${time.day} ${months[time.month - 1]} ${time.year}, '
+      '${two(time.hour)}:${two(time.minute)}';
 }

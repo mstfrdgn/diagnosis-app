@@ -17,3 +17,6 @@ class VariableInfo(BaseModel):
 class DomainResponse(BaseModel):
     features: list[VariableInfo]
     class_var: VariableInfo
+    # Class name of the pickled classifier (e.g. "TreeModel"), used by the
+    # frontend to describe the model. None only if it cannot be determined.
+    model_type: Optional[str] = None

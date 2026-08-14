@@ -42,10 +42,11 @@ class CsvService {
     required ModelDomain domain,
     required String modelPath,
     required AppConfig config,
+    String? modelDisplayName,
   }) async {
     File? file;
     try {
-      file = await _resolveFile(modelPath, config);
+      file = await _resolveFile(modelPath, config, modelDisplayName);
       final featureNames = domain.features.map((f) => f.name).toList();
       final classLabels =
           domain.classVar.values ?? record.probabilities.keys.toList();
@@ -78,27 +79,68 @@ class CsvService {
     }
   }
 
-  Future<File> _resolveFile(String modelPath, AppConfig config) async {
+  /// Absolute directory every per-model log is written to — the app documents
+  /// directory plus any directory part of `csv_logging.output_path`. Exposed
+  /// so the Settings screen can show and open it.
+  Future<Directory> logDirectory(AppConfig config) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    return Directory(
+      p.normalize(p.join(appDir.path, p.dirname(config.csvOutputPath))),
+    );
+  }
+
+  Future<File> _resolveFile(
+    String modelPath,
+    AppConfig config,
+    String? modelDisplayName,
+  ) async {
     final appDir = await getApplicationDocumentsDirectory();
     final file = File(
-      p.join(appDir.path, logFileNameFor(modelPath, config.csvOutputPath)),
+      p.join(
+        appDir.path,
+        logFileNameFor(
+          modelPath,
+          config.csvOutputPath,
+          displayName: modelDisplayName,
+        ),
+      ),
     );
     await file.parent.create(recursive: true);
     return file;
+  }
+
+  /// File-name stem identifying a model: its display name once the user has
+  /// given it one, otherwise its file name, reduced to a safe slug.
+  ///
+  /// Renaming a model therefore starts a new log file rather than rewriting
+  /// the old one; files written under the previous name are left untouched.
+  static String modelSlug(String modelPath, {String? displayName}) {
+    final name = displayName?.trim();
+    return _slug(
+      name != null && name.isNotEmpty
+          ? name
+          : p.basenameWithoutExtension(modelPath),
+    );
   }
 
   /// Log file name for [modelPath], derived from the configured
   /// `csv_logging.output_path` ([configuredPath]).
   ///
   /// Every model gets its own file — `sessions.csv` plus a model
-  /// `Dengue orange.pkcls` becomes `dengue_orange_sessions.csv` — because the
-  /// header is built from the model's domain. Sharing one file across models
-  /// would append rows under a header describing entirely different columns.
+  /// `Dengue orange.pkcls` becomes `dengue_orange_sessions.csv`, or
+  /// `dengue_pediatric_sessions.csv` once it has been renamed "Dengue
+  /// Pediatric" — because the header is built from the model's domain.
+  /// Sharing one file across models would append rows under a header
+  /// describing entirely different columns.
   ///
   /// Any directory part of [configuredPath] is preserved. A [modelPath] with
   /// no usable name falls back to [configuredPath] unchanged.
-  static String logFileNameFor(String modelPath, String configuredPath) {
-    final slug = _slug(p.basenameWithoutExtension(modelPath));
+  static String logFileNameFor(
+    String modelPath,
+    String configuredPath, {
+    String? displayName,
+  }) {
+    final slug = modelSlug(modelPath, displayName: displayName);
     if (slug.isEmpty) return configuredPath;
 
     final stem = p.basenameWithoutExtension(configuredPath);
@@ -146,7 +188,9 @@ class CsvService {
       record.predictedClass,
       if (config.csvIncludeProbability)
         ...classLabels.map(
-          (label) => record.probabilities[label]?.toString() ?? '',
+          // Two decimals is all a reader acts on, and it keeps the column
+          // narrow enough to scan in a spreadsheet.
+          (label) => record.probabilities[label]?.toStringAsFixed(2) ?? '',
         ),
       if (config.csvIncludeDoctorDiagnosis) record.doctorDiagnosis ?? '',
       if (config.csvIncludeNotes) record.notes ?? '',

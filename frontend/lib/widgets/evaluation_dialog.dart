@@ -30,6 +30,55 @@ class EvaluationDialog extends StatefulWidget {
     );
   }
 
+  /// Asks whether the doctor wants to record an evaluation at all, so a case
+  /// that needs no comment can be logged without dismissing a form. Returns
+  /// `false` when declined or dismissed.
+  static Future<bool> confirm(BuildContext context) async {
+    final wanted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        return AlertDialog(
+          icon: Container(
+            height: 44,
+            width: 44,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.help_outline,
+                size: 22, color: theme.colorScheme.primary),
+          ),
+          title: const Text('Would you like to add a doctor evaluation?'),
+          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          content: SizedBox(
+            width: 420,
+            child: Text(
+              'Choosing “No” still logs this session — just without a '
+              'diagnosis or notes of your own.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('No'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Yes'),
+            ),
+          ],
+        );
+      },
+    );
+    return wanted ?? false;
+  }
+
   @override
   State<EvaluationDialog> createState() => _EvaluationDialogState();
 }

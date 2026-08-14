@@ -2,10 +2,18 @@ import 'orange_variable.dart';
 
 /// Mirrors the backend's `DomainResponse` schema.
 class ModelDomain {
-  const ModelDomain({required this.features, required this.classVar});
+  const ModelDomain({
+    required this.features,
+    required this.classVar,
+    this.modelType,
+  });
 
   final List<OrangeVariable> features;
   final OrangeVariable classVar;
+
+  /// Class name of the pickled classifier (e.g. `TreeModel`), or null when
+  /// the backend could not determine it.
+  final String? modelType;
 
   factory ModelDomain.fromJson(Map<String, dynamic> json) {
     return ModelDomain(
@@ -14,6 +22,7 @@ class ModelDomain {
           .toList(),
       classVar:
           OrangeVariable.fromJson(json['class_var'] as Map<String, dynamic>),
+      modelType: json['model_type'] as String?,
     );
   }
 }
