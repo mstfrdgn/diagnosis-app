@@ -79,6 +79,20 @@ class _HomeScreenState extends State<HomeScreen> {
     await context.read<ModelConfigNotifier>().setDisplayName(entry.path, name);
   }
 
+  /// Drops [entry] from the recent list. Confirmed first because the saved
+  /// configuration goes with it, and rebuilding one by hand is the real cost —
+  /// the model file itself is never touched.
+  Future<void> _removeModel(ModelConfigEntry entry) async {
+    final confirmed = await _RemoveModelDialog.show(context, entry: entry);
+    if (confirmed != true || !mounted) return;
+    final name = entry.effectiveName;
+    await context.read<ModelConfigNotifier>().remove(entry.path);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Removed $name from recent models.')),
+    );
+  }
+
   /// Loads [path] on the backend, then goes to the input screen when
   /// [startWithConfiguration] is supplied, or to the configuration wizard.
   Future<void> _loadModel(
@@ -201,6 +215,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               enabled: !_loading,
                               onTap: () => _openRecent(recentModels[i]),
                               onRename: () => _renameModel(recentModels[i]),
+                              onRemove: () => _removeModel(recentModels[i]),
                             ),
                           ],
                         ],
@@ -539,18 +554,118 @@ class _RenameModelDialogState extends State<_RenameModelDialog> {
   }
 }
 
+/// Confirms dropping a recent model. Unlike a rename, this one is a one-way
+/// door for the saved configuration, so it says plainly what is lost and what
+/// is not — the file on disk being the part users worry about.
+class _RemoveModelDialog extends StatelessWidget {
+  const _RemoveModelDialog({required this.entry});
+
+  final ModelConfigEntry entry;
+
+  static Future<bool?> show(
+    BuildContext context, {
+    required ModelConfigEntry entry,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => _RemoveModelDialog(entry: entry),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final groups = entry.configuration?.groups.length ?? 0;
+    final bodyStyle = theme.textTheme.bodySmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
+
+    return AlertDialog(
+      icon: Container(
+        height: 44,
+        width: 44,
+        decoration: BoxDecoration(
+          color: scheme.error.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(Icons.delete_outline, size: 22, color: scheme.error),
+      ),
+      title: Text('Remove ${entry.effectiveName}?'),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              groups > 0
+                  ? 'Takes it off this list and discards its saved setup '
+                      '($groups ${groups == 1 ? 'group' : 'groups'}), which '
+                      'would have to be rebuilt by hand.'
+                  : 'Takes it off this list. It has no saved setup to lose.',
+              style: bodyStyle,
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                entry.path,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'The model file is not deleted — open it again from '
+              '"Select model" to start over. Session logs are left alone.',
+              style: bodyStyle,
+            ),
+          ],
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.icon(
+          onPressed: () => Navigator.of(context).pop(true),
+          style: FilledButton.styleFrom(
+            backgroundColor: scheme.error,
+            foregroundColor: scheme.onError,
+          ),
+          icon: const Icon(Icons.delete_outline, size: 20),
+          label: const Text('Remove'),
+        ),
+      ],
+    );
+  }
+}
+
 class _RecentModelTile extends StatelessWidget {
   const _RecentModelTile({
     required this.entry,
     required this.enabled,
     required this.onTap,
     required this.onRename,
+    required this.onRemove,
   });
 
   final ModelConfigEntry entry;
   final bool enabled;
   final VoidCallback onTap;
   final VoidCallback onRename;
+  final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -618,7 +733,22 @@ class _RecentModelTile extends StatelessWidget {
           ),
         ],
       ),
-      trailing: Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+      // Kept out of the title row, where the rename pencil sits: that one
+      // edits the name next to it, while this discards the whole entry.
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: enabled ? onRemove : null,
+            icon: const Icon(Icons.delete_outline, size: 20),
+            tooltip: 'Remove from recent models',
+            color: scheme.onSurfaceVariant,
+            visualDensity: VisualDensity.compact,
+          ),
+          const SizedBox(width: 4),
+          Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+        ],
+      ),
       onTap: onTap,
     );
   }

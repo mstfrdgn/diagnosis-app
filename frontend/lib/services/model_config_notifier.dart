@@ -63,6 +63,18 @@ class ModelConfigNotifier extends ChangeNotifier {
     await _persist();
   }
 
+  /// Forgets [path] entirely: it leaves the recent list and
+  /// `model_configs.json`, taking its name, description and saved
+  /// configuration with it.
+  ///
+  /// The `.pkcls` file itself is untouched, so picking the same model again
+  /// simply starts a fresh entry — and session logs, which live in their own
+  /// CSVs, are unaffected.
+  Future<void> remove(String path) async {
+    if (_entries.remove(path) == null) return;
+    await _persist();
+  }
+
   /// Saves [config] for [path], as produced by the Configuration Screen,
   /// along with the description the user edited alongside it.
   Future<void> saveConfiguration(
