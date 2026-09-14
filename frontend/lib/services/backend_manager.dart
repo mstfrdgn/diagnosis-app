@@ -82,6 +82,17 @@ class BackendManager {
       );
     }
 
+    // A backend left over from an earlier run answers /health exactly like one
+    // we started, and the readiness probe below cannot tell them apart: ours
+    // dies on the bind conflict while the squatter keeps replying 200, so the
+    // app would adopt whatever code that process loaded — silently, since
+    // nothing about it looks unhealthy. Claim the port only if it is free.
+    if (!await _isPortFree(port)) {
+      throw BackendStartupException(
+        'Port $port already serves a backend this app did not start.',
+      );
+    }
+
     final exe = kDebugMode ? _debugExecutable(workDir!) : _executable();
     final args = _buildArgs(port, _host);
 
@@ -106,14 +117,52 @@ class BackendManager {
           .listen((l) => debugPrint('[backend:err] $l'));
     }
 
-    await _waitUntilReady(port, timeoutSeconds);
+    // Latched rather than awaited: the readiness loop has to keep polling and
+    // check the exit as it goes, so it can give up the moment the process is
+    // gone instead of waiting out the full timeout.
+    int? exitCode;
+    unawaited(_process!.exitCode.then((code) => exitCode = code));
+
+    await _waitUntilReady(port, timeoutSeconds, () => exitCode);
   }
 
-  Future<void> _waitUntilReady(int port, int timeoutSeconds) async {
+  /// Whether [port] can still be claimed, decided by asking the OS to bind it.
+  ///
+  /// An HTTP probe cannot answer this reliably: the first request out of a
+  /// freshly started process routinely takes longer than any timeout short
+  /// enough to keep startup snappy, and a timeout is indistinguishable from
+  /// an empty port — which is precisely the reading that lets a stale backend
+  /// be adopted. Binding is immediate and unambiguous.
+  ///
+  /// Something else can still take the port between this check and the child
+  /// actually binding; that race is covered by the exit check in
+  /// [_waitUntilReady], which fails the attempt over to the next port.
+  Future<bool> _isPortFree(int port) async {
+    try {
+      final socket = await ServerSocket.bind(_host, port);
+      await socket.close();
+      return true;
+    } on SocketException {
+      return false;
+    }
+  }
+
+  Future<void> _waitUntilReady(
+    int port,
+    int timeoutSeconds,
+    int? Function() exitCode,
+  ) async {
     final deadline = DateTime.now().add(Duration(seconds: timeoutSeconds));
     final client = http.Client();
     try {
       while (DateTime.now().isBefore(deadline)) {
+        final code = exitCode();
+        if (code != null) {
+          throw BackendStartupException(
+            'Backend process exited with code $code before it was ready. '
+            'Its output is in the debug console.',
+          );
+        }
         try {
           final res = await client
               .get(Uri.parse('http://$_host:$port/health'))

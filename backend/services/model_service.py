@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,8 @@ import Orange.data
 import Orange.base
 
 from schemas.domain_schema import DomainResponse, VariableInfo
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class ModelNotLoadedError(RuntimeError):
@@ -49,6 +52,32 @@ class ModelService:
             raise ValueError("File does not contain a callable Orange model.")
         self._model = obj
         self._path = str(resolved)
+        self._log_domain_resolution()
+
+    def _log_domain_resolution(self) -> None:
+        """Report how the loaded model's input fields were resolved.
+
+        Worth a line in the log because it is invisible from the outside: a
+        continuized model advertises one-hot columns, and a backend process
+        left running from before this handling existed serves the raw columns
+        instead, which looks like a frontend bug.
+        """
+        fitted = list(self._model.domain.attributes)  # type: ignore[union-attr]
+        source = self._input_domain()
+        groups = self._detect_one_hot_groups(source.attributes)
+        logger.info(
+            "Loaded %s: %d fitted columns -> %d input fields%s",
+            self.model_type,
+            len(fitted),
+            len(source.attributes) - len(groups) + len({g.base for g in groups.values()}),
+            "" if len(source.attributes) == len(fitted)
+            else f" (de-continuized via original_domain: {[v.name for v in source.attributes]})",
+        )
+        if groups:
+            logger.info(
+                "Collapsed one-hot columns: %s",
+                {g.base: list(g.values) for g in groups.values()},
+            )
 
     def is_loaded(self) -> bool:
         return self._model is not None
