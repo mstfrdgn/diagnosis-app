@@ -116,6 +116,21 @@ class _ResultScreenState extends State<ResultScreen> {
       appBar: AppBar(
         title: const Text('Prediction result'),
         actions: [
+          // Every other way out of this screen — the back arrow and both
+          // "New patient" buttons — pops to the input screen, which keeps the
+          // current model loaded. This is the way back to pick a different one.
+          //
+          // `go` rather than `pop`: choosing another model abandons this
+          // model's configuration → input → result stack rather than stepping
+          // back up through it.
+          TextButton.icon(
+            onPressed: () => context.go('/home'),
+            icon: const Icon(Icons.home_outlined, size: 20),
+            label: const Text('Home'),
+          ),
+          const SizedBox(width: 4),
+          // Left where it was, nearest the edge: it is still the action users
+          // reach for most from this screen.
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: TextButton.icon(
