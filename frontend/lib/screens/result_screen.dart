@@ -11,6 +11,7 @@ import '../services/model_config_notifier.dart';
 import '../theme/app_theme.dart';
 import '../widgets/evaluation_dialog.dart';
 import '../widgets/result_display.dart';
+import 'sessions_screen.dart';
 
 /// Data passed via `extra` when navigating to [ResultScreen].
 class ResultScreenArgs {
@@ -116,9 +117,10 @@ class _ResultScreenState extends State<ResultScreen> {
       appBar: AppBar(
         title: const Text('Prediction result'),
         actions: [
-          // Every other way out of this screen — the back arrow and both
-          // "New patient" buttons — pops to the input screen, which keeps the
-          // current model loaded. This is the way back to pick a different one.
+          // Every other way out of this screen — the back arrow and the
+          // "New patient" button below — pops to the input screen, which keeps
+          // the current model loaded. This is the way back to pick a different
+          // one.
           //
           // `go` rather than `pop`: choosing another model abandons this
           // model's configuration → input → result stack rather than stepping
@@ -129,14 +131,17 @@ class _ResultScreenState extends State<ResultScreen> {
             label: const Text('Home'),
           ),
           const SizedBox(width: 4),
-          // Left where it was, nearest the edge: it is still the action users
-          // reach for most from this screen.
+          // `push`, so coming back from the log lands on this result again —
+          // the session just recorded is the one the user came to check.
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: TextButton.icon(
-              onPressed: () => context.pop(),
-              icon: const Icon(Icons.person_add_alt, size: 20),
-              label: const Text('New patient'),
+              onPressed: () => context.push(
+                '/sessions',
+                extra: SessionsScreenArgs(modelPath: widget.args.modelPath),
+              ),
+              icon: const Icon(Icons.history_outlined, size: 20),
+              label: const Text('Sessions'),
             ),
           ),
         ],

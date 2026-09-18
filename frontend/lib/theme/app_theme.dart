@@ -285,6 +285,9 @@ class EmptyStateCard extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Column(
+        // Without this the card stretches to fill any parent that hands it a
+        // bounded height — an Expanded, say — instead of hugging its message.
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, color: color, size: 28),
           const SizedBox(height: 10),

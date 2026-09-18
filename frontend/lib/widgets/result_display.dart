@@ -59,7 +59,7 @@ class ResultDisplay extends StatelessWidget {
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
-                      '${_formatProbability(confidence, config.resultDisplayProbabilityFormat)} confidence',
+                      '${formatProbability(confidence, config.resultDisplayProbabilityFormat)} confidence',
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: scheme.onPrimary,
                         fontWeight: FontWeight.w600,
@@ -101,7 +101,10 @@ class ResultDisplay extends StatelessWidget {
   }
 }
 
-String _formatProbability(double value, String format) {
+/// Formats a probability the way `result_display.probability_format`
+/// prescribes. Shared with the Sessions screen so a confidence reads the
+/// same whether it is live or read back from the log.
+String formatProbability(double value, String format) {
   return format == 'decimal'
       ? value.toStringAsFixed(3)
       : '${(value * 100).toStringAsFixed(1)}%';
@@ -139,7 +142,7 @@ class _ProbabilityBar extends StatelessWidget {
               ),
             ),
             Text(
-              _formatProbability(value, format),
+              formatProbability(value, format),
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: highlighted ? FontWeight.w700 : FontWeight.w500,
                 color: highlighted ? scheme.primary : scheme.onSurfaceVariant,

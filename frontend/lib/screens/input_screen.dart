@@ -16,6 +16,7 @@ import '../services/model_config_notifier.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dynamic_form.dart';
 import 'result_screen.dart';
+import 'sessions_screen.dart';
 
 /// Data passed via `extra` when navigating to [InputScreen] (normally by
 /// [ConfigurationScreen] right after the user saves their per-model setup).
@@ -296,15 +297,25 @@ class _InputScreenState extends State<InputScreen> {
             ],
           ),
           actions: [
-            if (domain != null)
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: TextButton.icon(
-                  onPressed: _predicting ? null : _batchPredict,
-                  icon: const Icon(Icons.upload_file_outlined, size: 20),
-                  label: const Text('Batch predict from CSV'),
-                ),
+            // Both actions describe the loaded model, so neither has anything
+            // to act on until the domain has arrived.
+            if (domain != null) ...[
+              TextButton.icon(
+                onPressed: _predicting ? null : _batchPredict,
+                icon: const Icon(Icons.upload_file_outlined, size: 20),
+                label: const Text('Batch predict from CSV'),
               ),
+              const SizedBox(width: 4),
+              TextButton.icon(
+                onPressed: () => context.push(
+                  '/sessions',
+                  extra: SessionsScreenArgs(modelPath: _modelPath),
+                ),
+                icon: const Icon(Icons.history_outlined, size: 20),
+                label: const Text('Sessions'),
+              ),
+              const SizedBox(width: 12),
+            ],
           ],
           bottom: hasGroups
               ? PreferredSize(

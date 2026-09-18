@@ -7,6 +7,7 @@ import 'screens/configuration_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/input_screen.dart';
 import 'screens/result_screen.dart';
+import 'screens/sessions_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/backend_manager.dart';
 import 'theme/app_theme.dart';
@@ -53,6 +54,11 @@ GoRouter buildRouter(BackendNotifier notifier) {
         path: '/result',
         builder: (_, state) =>
             ResultScreen(args: state.extra as ResultScreenArgs),
+      ),
+      GoRoute(
+        path: '/sessions',
+        builder: (_, state) =>
+            SessionsScreen(initialArgs: state.extra as SessionsScreenArgs?),
       ),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
     ],

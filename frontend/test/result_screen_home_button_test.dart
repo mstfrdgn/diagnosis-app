@@ -13,11 +13,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-/// The result screen's other exits (the back arrow, both "New patient"
-/// buttons) pop to the input screen and keep the current model loaded. The
-/// Home button is the only way back to pick a different model, so what is
+/// The result screen's other exits (the back arrow, the "New patient" button
+/// at the bottom) pop to the input screen and keep the current model loaded.
+/// The Home button is the only way back to pick a different model, so what is
 /// worth pinning down is that it reaches /home and does not simply uncover
 /// the input screen underneath.
+///
+/// The AppBar's second action is Sessions, which pushes rather than pops so
+/// the result stays underneath.
 void main() {
   late Directory tempDir;
 
@@ -79,6 +82,12 @@ void main() {
             path: '/result',
             builder: (_, __) => ResultScreen(args: args),
           ),
+          // A stand-in, like /home and /input above: what this file pins down
+          // is where the button goes, not what the log screen renders.
+          GoRoute(
+            path: '/sessions',
+            builder: (_, __) => const Scaffold(body: Text('SESSIONS SCREEN')),
+          ),
         ],
       );
 
@@ -112,7 +121,11 @@ void main() {
   // Found by icon rather than by label: TextButton.icon does not put a
   // TextButton ancestor above its label in this Flutter version.
   final homeButton = find.byIcon(Icons.home_outlined);
-  final newPatientInAppBar = find.byIcon(Icons.person_add_alt);
+  final sessionsButton = find.byIcon(Icons.history_outlined);
+
+  // The only "New patient" left is the one at the bottom of the body; the
+  // AppBar action that used to sit beside Home is now Sessions.
+  final newPatientButton = find.text('New patient');
 
   testWidgets('the Home button navigates to the home screen', (tester) async {
     final router = buildTestRouter();
@@ -147,10 +160,46 @@ void main() {
     final router = buildTestRouter();
     await pumpResultScreen(tester, router);
 
-    await tester.tap(newPatientInAppBar);
+    expect(newPatientButton, findsOneWidget);
+    await tester.tap(newPatientButton);
     await tester.pumpAndSettle();
 
     expect(find.text('INPUT SCREEN'), findsOneWidget);
     expect(find.text('HOME SCREEN'), findsNothing);
+  });
+
+  testWidgets('the Sessions button opens the session log', (tester) async {
+    final router = buildTestRouter();
+    await pumpResultScreen(tester, router);
+
+    expect(sessionsButton, findsOneWidget);
+    expect(find.text('Sessions'), findsOneWidget);
+
+    await tester.tap(sessionsButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('SESSIONS SCREEN'), findsOneWidget);
+  });
+
+  testWidgets('Sessions pushes, leaving the result underneath', (tester) async {
+    final router = buildTestRouter();
+    await pumpResultScreen(tester, router);
+
+    await tester.tap(sessionsButton);
+    await tester.pumpAndSettle();
+
+    // Popping the log comes back to this result rather than skipping past it
+    // to the input screen — the session just recorded is the one the user
+    // opened the log to check.
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('Prediction result'), findsOneWidget);
+  });
+
+  testWidgets('the old New patient AppBar action is gone', (tester) async {
+    final router = buildTestRouter();
+    await pumpResultScreen(tester, router);
+
+    expect(find.byIcon(Icons.person_add_alt), findsNothing);
   });
 }
