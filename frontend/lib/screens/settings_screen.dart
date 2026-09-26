@@ -1,15 +1,18 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../config/app_config_notifier.dart';
 import '../services/csv_service.dart';
+import '../services/session_log_service.dart';
 import '../theme/app_theme.dart';
 
 /// Shows the location of `app_config.yaml`, lets the user open it in their
 /// system default editor, and reload it into [AppConfigNotifier] without
-/// restarting the app. Also shows where session CSV logs are written.
+/// restarting the app. Also shows where session CSV logs are written, what
+/// they add up to, and which version of the app is running.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -20,6 +23,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String? _configPath;
   String? _csvDirPath;
+  SessionLogSummary? _logSummary;
+  String? _appVersion;
   bool _reloading = false;
   String? _statusMessage;
   bool _statusIsError = false;
@@ -32,6 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadPaths();
+    _loadVersion();
   }
 
   @override
@@ -44,11 +50,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final notifier = context.read<AppConfigNotifier>();
     final path = await notifier.configFilePath();
     final csvDir = await const CsvService().logDirectory(notifier.config);
+    // Reads every log in the folder, so it is kept out of the path lookup's
+    // setState: the folder shows up straight away and the totals follow.
+    final summary =
+        await const SessionLogService().summarize(config: notifier.config);
     if (!mounted) return;
     setState(() {
       _configPath = path;
       _csvDirPath = csvDir.path;
+      _logSummary = summary;
     });
+  }
+
+  /// The running build's version. Comes from the platform's own package
+  /// metadata, which the Windows/macOS runners stamp from `pubspec.yaml`.
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      final build = info.buildNumber;
+      setState(() => _appVersion =
+          build.isEmpty ? info.version : '${info.version}+$build');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _appVersion = 'Unavailable ($e)');
+    }
   }
 
   Future<void> _openInEditor() async {
@@ -257,6 +283,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               fontFamily: 'monospace',
                             ),
                           ),
+                          const SizedBox(height: 16),
+                          _LogSummary(summary: _logSummary),
                           const SizedBox(height: 20),
                           OutlinedButton.icon(
                             onPressed:
@@ -297,6 +325,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 32),
+                  const SectionHeader(
+                    title: 'App version',
+                    subtitle: 'The build of the app you are running. Quote it '
+                        'when reporting a problem.',
+                  ),
+                  Card(
+                    child: Column(
+                      children: [
+                        _ConfigRow(
+                          'Version',
+                          _appVersion ?? 'Reading version…',
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 24),
                 ],
               ),
@@ -306,6 +350,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+}
+
+/// What the log folder holds, as one line under its path: how many per-model
+/// logs are in it and how many sessions they add up to.
+class _LogSummary extends StatelessWidget {
+  const _LogSummary({required this.summary});
+
+  /// Null while the folder is still being read.
+  final SessionLogSummary? summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final summary = this.summary;
+
+    final (IconData icon, Color color, String text) = switch (summary) {
+      null => (
+          Icons.hourglass_empty,
+          scheme.onSurfaceVariant,
+          'Counting recorded sessions…',
+        ),
+      SessionLogSummary(error: final error?) => (
+          Icons.error_outline,
+          scheme.error,
+          'Could not read the log folder: $error',
+        ),
+      SessionLogSummary(fileCount: 0) => (
+          Icons.inbox_outlined,
+          scheme.onSurfaceVariant,
+          'No log files yet.',
+        ),
+      final s => (
+          Icons.summarize_outlined,
+          scheme.onSurfaceVariant,
+          '${_count(s.fileCount, 'log file')} · '
+              '${_count(s.sessionCount, 'recorded session')}'
+              '${s.unreadableFileCount == 0 ? '' : ' · '
+                  '${_count(s.unreadableFileCount, 'file')} could not be '
+                  'read, so its rows are not counted'}',
+        ),
+    };
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: theme.textTheme.bodySmall?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _count(int value, String noun) =>
+      '$value $noun${value == 1 ? '' : 's'}';
 }
 
 class _ConfigRow extends StatelessWidget {

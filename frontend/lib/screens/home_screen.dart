@@ -13,6 +13,7 @@ import '../services/model_config_notifier.dart';
 import '../theme/app_theme.dart';
 import 'configuration_screen.dart';
 import 'input_screen.dart';
+import 'sessions_screen.dart';
 
 /// Lets the user pick a `.pkcls` Orange model file (or reopen a recently
 /// used one), loads it on the backend, and – on success – navigates to
@@ -53,8 +54,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Tapping a recent model that already has a saved configuration is
-  /// ambiguous — the user may want to run a case or to change the setup — so
-  /// ask. An unconfigured model can only go one way: into the wizard.
+  /// ambiguous — the user may want to run a case, to change the setup, or just
+  /// to read back its past sessions — so ask. An unconfigured model can only
+  /// go one way: into the wizard.
   Future<void> _openRecent(ModelConfigEntry entry) async {
     final configuration = entry.configuration;
     if (configuration == null) {
@@ -63,6 +65,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final action = await _RecentModelActionDialog.show(context, entry: entry);
     if (action == null || !mounted) return;
+    // Past sessions are read straight off disk from the model's path, so this
+    // one skips loading the model on the backend entirely.
+    if (action == _RecentModelAction.viewSessions) {
+      context.push(
+        '/sessions',
+        extra: SessionsScreenArgs(modelPath: entry.path),
+      );
+      return;
+    }
     await _loadModel(
       entry.path,
       startWithConfiguration:
@@ -191,7 +202,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 12),
                     Text(
                       _modelPath!,
-                      textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -233,8 +243,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// The welcome panel: what the app does, the primary action, and a quiet
-/// confirmation that the diagnostic engine is up.
+/// The opening panel: where the user is in the flow, what the app does with a
+/// model, the primary action, and a quiet confirmation that the engine is up.
+///
+/// Laid out left-aligned rather than centred. A centred stack of icon,
+/// headline and button reads as a product splash; this is the first step of a
+/// clinical workflow, so it reads as a working header instead — the eyebrow
+/// says which step it is, and the engine status sits opposite it where a
+/// status belongs rather than as a footnote under the button.
 class _Hero extends StatelessWidget {
   const _Hero({
     required this.loading,
@@ -246,81 +262,178 @@ class _Hero extends StatelessWidget {
   final VoidCallback onPickModel;
   final String baseUrl;
 
+  /// Comfortable measure for the supporting paragraph. Left to fill the panel
+  /// it would run to ~95 characters, past the point where the eye reliably
+  /// finds the start of the next line.
+  static const _proseWidth = 520.0;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final radius = BorderRadius.circular(AppSpacing.radius + 6);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 44),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppSpacing.radius + 6),
-        border: Border.all(color: scheme.outlineVariant),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            scheme.primary.withValues(alpha: 0.10),
-            scheme.primary.withValues(alpha: 0.02),
-          ],
+    return ClipRRect(
+      borderRadius: radius,
+      child: Container(
+        decoration: BoxDecoration(
+          // The same surface and border a Card gets, so the panel sits on the
+          // page at the same height as the list below it.
+          color: theme.cardTheme.color ?? scheme.surface,
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.8),
+          ),
+          borderRadius: radius,
         ),
-      ),
-      child: Column(
-        children: [
-          Container(
-            height: 64,
-            width: 64,
-            decoration: BoxDecoration(
-              color: scheme.primary,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: scheme.primary.withValues(alpha: 0.35),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
+        child: Stack(
+          children: [
+            // A soft wash of the accent colour bleeding in from the corner:
+            // cheaper than a shadow, and unlike a full-panel gradient it
+            // leaves the text sitting on a flat, legible surface.
+            Positioned(
+              top: -110,
+              right: -70,
+              child: IgnorePointer(
+                child: Container(
+                  height: 280,
+                  width: 280,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        scheme.primary.withValues(alpha: 0.16),
+                        scheme.primary.withValues(alpha: 0.0),
+                      ],
+                    ),
+                  ),
                 ),
-              ],
-            ),
-            child: Icon(Icons.medical_services_outlined,
-                size: 30, color: scheme.onPrimary),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Ready when you are',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 10),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440),
-            child: Text(
-              'Open an Orange model to build a data-entry form for it, then '
-              'run predictions and record your own evaluation for each case.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
               ),
             ),
-          ),
-          const SizedBox(height: 28),
-          FilledButton.icon(
-            onPressed: loading ? null : onPickModel,
-            icon: loading
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.folder_open_outlined, size: 20),
-            label: Text(loading ? 'Loading model…' : 'Open model (.pkcls)'),
-          ),
-          const SizedBox(height: 24),
-          _StatusPill(baseUrl: baseUrl),
-        ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(36, 32, 36, 36),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // spaceBetween pushes these to opposite edges while they
+                  // both fit, and drops the status onto its own line once the
+                  // window is too narrow for the pair. The full-width box is
+                  // what makes that work: left to shrink-wrap its children,
+                  // the Wrap has no free space to distribute and the two end
+                  // up side by side on the left.
+                  SizedBox(
+                    width: double.infinity,
+                    child: Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 16,
+                      runSpacing: 14,
+                      children: [
+                        const _Eyebrow(label: 'Select a model'),
+                        _StatusPill(baseUrl: baseUrl),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 26),
+                  Text(
+                    'Start a diagnostic session',
+                    style: theme.textTheme.displaySmall,
+                  ),
+                  const SizedBox(height: 14),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: _proseWidth),
+                    child: Text(
+                      'Open a trained Orange classifier and the app builds a '
+                      'data-entry form from its variables — then run '
+                      'predictions and record your own evaluation for each '
+                      'case.',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 18,
+                    runSpacing: 12,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: loading ? null : onPickModel,
+                        icon: loading
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.folder_open_outlined, size: 20),
+                        label: Text(
+                          loading ? 'Loading model…' : 'Open model (.pkcls)',
+                        ),
+                      ),
+                      Text(
+                        'Works with any Orange 3 classifier.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
+/// Small tracked label behind an accent rule, naming the step this screen is.
+class _Eyebrow extends StatelessWidget {
+  const _Eyebrow({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          height: 13,
+          width: 3,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 10),
+        // Flexible so a very narrow window truncates the label instead of
+        // overflowing the row it shares with the status pill.
+        Flexible(
+          child: Text(
+            label.toUpperCase(),
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// "The engine answered": a live dot, the state, and the address it is on.
+///
+/// The address is the part a user reads out when something is wrong, so it
+/// keeps its own monospaced slot behind a divider instead of running on from
+/// the label.
 class _StatusPill extends StatelessWidget {
   const _StatusPill({required this.baseUrl});
 
@@ -329,29 +442,62 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    const green = Color(0xFF16A34A);
+    // The seeded scheme has no "healthy" colour, and its primary is already
+    // spoken for by actions. Dark mode takes the lighter green to clear the
+    // contrast floor against a dark panel.
+    final green = theme.brightness == Brightness.light
+        ? const Color(0xFF16A34A)
+        : const Color(0xFF4ADE80);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
-        color: green.withValues(alpha: 0.10),
+        color: green.withValues(alpha: 0.09),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: green.withValues(alpha: 0.30)),
+        border: Border.all(color: green.withValues(alpha: 0.28)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            height: 8,
-            width: 8,
-            decoration: const BoxDecoration(
+            height: 7,
+            width: 7,
+            decoration: BoxDecoration(
               color: green,
               shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: green.withValues(alpha: 0.55),
+                  blurRadius: 6,
+                  spreadRadius: 1,
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 9),
           Text(
-            'Engine running · $baseUrl',
-            style: theme.textTheme.labelMedium?.copyWith(color: green),
+            'Engine running',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: green,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 9),
+          Container(height: 11, width: 1, color: green.withValues(alpha: 0.3)),
+          const SizedBox(width: 9),
+          // Flexible, so a window too narrow for the whole pill ellipsises
+          // the address rather than overflowing: "Engine running" is the part
+          // that has to stay readable.
+          Flexible(
+            child: Text(
+              baseUrl,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: green.withValues(alpha: 0.9),
+                fontFamily: 'monospace',
+              ),
+            ),
           ),
         ],
       ),
@@ -406,7 +552,7 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 /// What the user chose to do with an already-configured recent model.
-enum _RecentModelAction { startDiagnosis, reconfigure }
+enum _RecentModelAction { startDiagnosis, reconfigure, viewSessions }
 
 /// Asked when a recent model already has a saved configuration.
 class _RecentModelActionDialog extends StatelessWidget {
@@ -446,7 +592,8 @@ class _RecentModelActionDialog extends StatelessWidget {
         child: Text(
           'This model is already configured '
           '($groups ${groups == 1 ? 'group' : 'groups'}). Start entering '
-          'patient data, or change the setup first?',
+          'patient data, change the setup first, or look over the sessions '
+          'already recorded for it?',
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
@@ -454,6 +601,13 @@ class _RecentModelActionDialog extends StatelessWidget {
       ),
       actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
       actions: [
+        TextButton.icon(
+          onPressed: () =>
+              Navigator.of(context).pop(_RecentModelAction.viewSessions),
+          icon: const Icon(Icons.history_outlined, size: 20),
+          label: const Text('View Sessions'),
+        ),
+        const SizedBox(width: 8),
         TextButton.icon(
           onPressed: () =>
               Navigator.of(context).pop(_RecentModelAction.reconfigure),

@@ -151,6 +151,24 @@ class CsvService {
     return dir == '.' ? name : p.join(dir, name);
   }
 
+  /// Whether [fileName] (a bare file name, no directory) is one of the
+  /// per-model logs [logFileNameFor] produces for [configuredPath].
+  ///
+  /// That is `<slug>_<stem><ext>` for a named model, plus the bare
+  /// `<stem><ext>` that a model with no usable name falls back to. Compared
+  /// case-insensitively because the log folder lives on a Windows file system
+  /// as often as not, and it keeps unrelated files the user dropped in the
+  /// folder out of the count.
+  static bool isModelLogFileName(String fileName, String configuredPath) {
+    final target = p.basename(configuredPath).toLowerCase();
+    final name = fileName.toLowerCase();
+    if (name == target) return true;
+
+    final stem = p.basenameWithoutExtension(target);
+    if (stem.isEmpty) return false;
+    return name.endsWith('_$stem${p.extension(target)}');
+  }
+
   /// Lowercases [value] and reduces it to `[a-z0-9_]` so it is safe as a file
   /// name component on every platform.
   static String _slug(String value) {

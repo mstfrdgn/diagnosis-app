@@ -45,6 +45,39 @@ class SessionLog {
   bool get succeeded => error == null;
 }
 
+/// What the Settings screen reports about the log folder as a whole:
+/// how many per-model logs are in it, and how many sessions they hold
+/// between them.
+class SessionLogSummary {
+  const SessionLogSummary({
+    required this.fileCount,
+    required this.sessionCount,
+    required this.unreadableFileCount,
+    this.error,
+  });
+
+  const SessionLogSummary.failure(this.error)
+      : fileCount = 0,
+        sessionCount = 0,
+        unreadableFileCount = 0;
+
+  /// Per-model log files found in the folder.
+  final int fileCount;
+
+  /// Rows across every log that could be read.
+  final int sessionCount;
+
+  /// Logs that were found but could not be read or parsed. Their rows are
+  /// missing from [sessionCount], so the screen says so rather than
+  /// presenting a total it knows is short.
+  final int unreadableFileCount;
+
+  /// Human-readable reason the folder itself could not be listed, or null.
+  final String? error;
+
+  bool get succeeded => error == null;
+}
+
 /// Reads back the CSV logs [CsvService] writes.
 ///
 /// Columns are taken from the file's own header rather than from the current
@@ -93,6 +126,62 @@ class SessionLogService {
       );
     } catch (e) {
       return SessionLog.failure(path ?? config.csvOutputPath, '$e');
+    }
+  }
+
+  /// Counts the per-model logs in the folder [CsvService] writes them to, and
+  /// the sessions recorded across all of them.
+  ///
+  /// A missing folder is the normal state before the first prediction is
+  /// logged, not an error, so it comes back as zeroes. One log that cannot be
+  /// read does not sink the rest: it is counted in
+  /// [SessionLogSummary.unreadableFileCount] and the others are still added
+  /// up.
+  Future<SessionLogSummary> summarize({required AppConfig config}) async {
+    try {
+      final directory = await const CsvService().logDirectory(config);
+      if (!await directory.exists()) {
+        return const SessionLogSummary(
+          fileCount: 0,
+          sessionCount: 0,
+          unreadableFileCount: 0,
+        );
+      }
+
+      var files = 0;
+      var sessions = 0;
+      var unreadable = 0;
+      await for (final entity in directory.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = p.basename(entity.path);
+        if (!CsvService.isModelLogFileName(name, config.csvOutputPath)) {
+          continue;
+        }
+        files++;
+        try {
+          final log = parse(
+            await entity.readAsString(),
+            path: entity.path,
+            config: config,
+          );
+          if (log.succeeded) {
+            sessions += log.sessions.length;
+          } else {
+            unreadable++;
+          }
+        } catch (_) {
+          unreadable++;
+        }
+      }
+      return SessionLogSummary(
+        fileCount: files,
+        sessionCount: sessions,
+        unreadableFileCount: unreadable,
+      );
+    } on FileSystemException catch (e) {
+      return SessionLogSummary.failure(e.osError?.message ?? e.message);
+    } catch (e) {
+      return SessionLogSummary.failure('$e');
     }
   }
 
