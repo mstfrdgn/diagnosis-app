@@ -1,3 +1,5 @@
+import 'dart:ui' show AppExitResponse;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -53,6 +55,15 @@ Future<void> main() async {
 class _LifecycleWatcher extends WidgetsBindingObserver {
   _LifecycleWatcher(this._manager);
   final BackendManager _manager;
+
+  // Closing the window asks here first and waits for the answer, so the
+  // backend is actually dead before the process exits. `detached` below is
+  // not reliably delivered on Windows, and its stop() is not awaited.
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    await _manager.stop();
+    return AppExitResponse.exit;
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
