@@ -1,5 +1,6 @@
 # Python
 backend/.venv/
+backend/.venv-build/
 **/__pycache__/
 *.pyc
 backend/build/
@@ -14,6 +15,10 @@ frontend/.flutter-plugins-dependencies
 frontend/.pub-cache/
 frontend/.pub/
 frontend/**/ephemeral/
+# Backend binary copied in by scripts/build_all.*; the folder itself must exist
+# for pubspec's asset entry, hence the .gitkeep
+frontend/assets/backend/*
+!frontend/assets/backend/.gitkeep
 
 # Logs
 *.log

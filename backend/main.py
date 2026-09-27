@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 
 import uvicorn
 from fastapi import FastAPI
@@ -36,5 +38,11 @@ def _parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    # The Windows bundle is built without a console (else launching it pops
+    # one up) and may then have no stdout/stderr, which uvicorn logs to.
+    for _name in ("stdout", "stderr"):
+        if getattr(sys, _name) is None:
+            setattr(sys, _name, open(os.devnull, "w"))
+
     args = _parse_args()
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

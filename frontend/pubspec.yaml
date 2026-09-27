@@ -28,6 +28,9 @@ dependencies:
   # Platform-safe path joining
   path: ^1.9.0
 
+  # SHA256 check of the bundled backend before it is unpacked
+  crypto: ^3.0.6
+
   # ChangeNotifier-based state management
   provider: ^6.1.2
 
@@ -49,3 +52,5 @@ flutter:
 
   assets:
     - assets/config/app_config.yaml
+    # PyInstaller-built backend + its SHA256, placed here by scripts/build_all.*
+    - assets/backend/

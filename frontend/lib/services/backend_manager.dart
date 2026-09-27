@@ -1,9 +1,15 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:math';
 
+import 'package:archive/archive_io.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../config/app_config.dart';
 
@@ -22,11 +28,27 @@ class BackendStartupException implements Exception {
 
 // ── manager ───────────────────────────────────────────────────────────────────
 
+/// How the backend gets started: `python main.py` from the source tree in
+/// debug builds, the unpacked PyInstaller bundle otherwise.
+typedef _Launch = ({String exe, String? workDir});
+
 /// Launches, health-polls, and eventually terminates the FastAPI subprocess.
 class BackendManager {
   Process? _process;
   String _host = '127.0.0.1';
   int _port = 8765;
+
+  /// Path of the unpacked bundle's executable, shared by every port attempt
+  /// so the bundle is checked and unpacked at most once per run.
+  Future<String>? _bundledExe;
+
+  /// Floor for the startup timeout when running the bundle. The first launch
+  /// after an install or update runs files the antivirus has never seen, and
+  /// scanning them easily takes longer than the dev default of 15 s.
+  static const _bundledStartupTimeoutSeconds = 60;
+
+  static const _assetDir = 'assets/backend';
+  static const _bundleName = 'diagnostic_backend';
 
   String get host => _host;
   int get port => _port;
@@ -39,10 +61,14 @@ class BackendManager {
     required int startupTimeoutSeconds,
   }) async {
     _host = host;
+    final launch = await _resolveLaunch();
+    final timeout = kDebugMode
+        ? startupTimeoutSeconds
+        : max(startupTimeoutSeconds, _bundledStartupTimeoutSeconds);
     for (var attempt = 0; attempt < 5; attempt++) {
       final tryPort = port + attempt;
       try {
-        await _launch(tryPort, startupTimeoutSeconds);
+        await _launch(launch, tryPort, timeout);
         _port = tryPort;
         return;
       } on BackendStartupException {
@@ -72,17 +98,27 @@ class BackendManager {
 
   // ── private ────────────────────────────────────────────────────────────────
 
-  Future<void> _launch(int port, int timeoutSeconds) async {
-    final workDir = kDebugMode ? _findBackendDir() : null;
-
-    if (kDebugMode && workDir == null) {
-      throw const BackendStartupException(
-        'Cannot locate backend/main.py.\n'
-        'Run "flutter run" from the diagnostic_app project root, or supply\n'
-        '--dart-define=DIAGNOSTIC_BACKEND_DIR=/absolute/path/to/backend.',
-      );
+  Future<_Launch> _resolveLaunch() async {
+    if (kDebugMode) {
+      final workDir = _findBackendDir();
+      if (workDir == null) {
+        throw const BackendStartupException(
+          'Cannot locate backend/main.py.\n'
+          'Run "flutter run" from the diagnostic_app project root, or supply\n'
+          '--dart-define=DIAGNOSTIC_BACKEND_DIR=/absolute/path/to/backend.',
+        );
+      }
+      return (exe: _debugExecutable(workDir), workDir: workDir);
     }
+    try {
+      return (exe: await (_bundledExe ??= _unpackBundle()), workDir: null);
+    } catch (_) {
+      _bundledExe = null; // let Retry unpack again
+      rethrow;
+    }
+  }
 
+  Future<void> _launch(_Launch launch, int port, int timeoutSeconds) async {
     // A backend left over from an earlier run answers /health exactly like one
     // we started, and the readiness probe below cannot tell them apart: ours
     // dies on the bind conflict while the squatter keeps replying 200, so the
@@ -94,16 +130,16 @@ class BackendManager {
       );
     }
 
-    final exe = kDebugMode ? _debugExecutable(workDir!) : _executable();
     final args = _buildArgs(port, _host);
 
     try {
       _process = await Process.start(
-        exe,
+        launch.exe,
         args,
-        workingDirectory: workDir,
-        // runInShell lets Windows resolve 'python' through %PATH%
-        runInShell: Platform.isWindows,
+        workingDirectory: launch.workDir,
+        // runInShell lets Windows resolve 'python' through %PATH%; the
+        // bundle is started by its absolute path and needs no shell.
+        runInShell: kDebugMode && Platform.isWindows,
       );
     } on ProcessException catch (e) {
       throw BackendStartupException('Failed to start backend process: $e');
@@ -116,6 +152,11 @@ class BackendManager {
       _process!.stderr
           .transform(const SystemEncoding().decoder)
           .listen((l) => debugPrint('[backend:err] $l'));
+    } else {
+      // Unread pipes fill up, and uvicorn logs every request: once the
+      // buffer is full the backend blocks on its next log line.
+      _process!.stdout.drain<void>();
+      _process!.stderr.drain<void>();
     }
 
     // Latched rather than awaited: the readiness loop has to keep polling and
@@ -184,11 +225,112 @@ class BackendManager {
 
   // ── path resolution ────────────────────────────────────────────────────────
 
-  static String _executable() {
-    // Phase 7: return path to bundled binary extracted from assets
-    throw UnimplementedError(
-      'Release binary not yet bundled. Use debug mode (flutter run).',
+  /// Unpack the bundled backend (the zipped PyInstaller --onedir build) into
+  /// the app cache, unless this exact build is already there, and return the
+  /// path of its executable.
+  ///
+  /// Each build gets a folder named after its SHA256, so an app update never
+  /// runs an older backend, and only the small checksum asset is read on
+  /// a normal start. The marker file is written last: a folder without it
+  /// is an interrupted extraction and gets redone.
+  static Future<String> _unpackBundle() async {
+    final expected =
+        (await rootBundle.loadString('$_assetDir/$_bundleName.sha256'))
+            .trim()
+            .toLowerCase();
+    final root = p.join((await getApplicationCacheDirectory()).path, 'backend');
+    final installDir = p.join(root, expected);
+    final exe = p.join(
+      installDir,
+      Platform.isWindows ? '$_bundleName.exe' : _bundleName,
     );
+    final marker = File(p.join(installDir, '.unpacked'));
+    // The executable is checked too: antivirus software may have quarantined
+    // it since it was unpacked.
+    if (await marker.exists() && await File(exe).exists()) return exe;
+
+    try {
+      final dir = Directory(installDir);
+      if (await dir.exists()) await dir.delete(recursive: true);
+      await dir.create(recursive: true);
+
+      // Copied out of the asset bundle so the isolate below can stream it
+      // from disk instead of holding the whole archive in memory twice.
+      final zipPath = p.join(root, '$expected.zip');
+      final data = await rootBundle.load('$_assetDir/$_bundleName.zip');
+      await File(zipPath).writeAsBytes(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      );
+      try {
+        // Hashing and inflating a few hundred MB would freeze the splash
+        // screen if done on this isolate.
+        await Isolate.run(() => _verifyAndExtract(zipPath, expected, installDir));
+      } finally {
+        await File(zipPath).delete();
+      }
+
+      if (!Platform.isWindows) {
+        await Process.run('chmod', ['+x', exe]);
+      }
+      await marker.create();
+    } on FileSystemException catch (e) {
+      throw BackendStartupException(
+        'Could not unpack the backend to $installDir: $e',
+      );
+    }
+
+    // Folders of earlier builds. One may still be in use by a stray backend
+    // process; it is simply left for the next start to remove.
+    await for (final entry in Directory(root).list()) {
+      if (p.equals(entry.path, installDir)) continue;
+      try {
+        await entry.delete(recursive: true);
+      } on FileSystemException {
+        // still locked
+      }
+    }
+    return exe;
+  }
+
+  static Future<void> _verifyAndExtract(
+    String zipPath,
+    String expectedSha256,
+    String outDir,
+  ) async {
+    final actual = (await sha256.bind(File(zipPath).openRead()).first)
+        .toString();
+    if (actual != expectedSha256) {
+      throw BackendStartupException(
+        'The bundled backend is damaged (SHA256 $actual, expected '
+        '$expectedSha256). Please reinstall the app.',
+      );
+    }
+
+    // Not archive's extractFileToDisk: it swallows write errors, and a
+    // half-written backend fails later in ways that are hard to trace.
+    final input = InputFileStream(zipPath);
+    try {
+      final archive = ZipDecoder().decodeBuffer(input);
+      for (final entry in archive.files) {
+        if (!entry.isFile) continue;
+        final path = p.join(outDir, p.normalize(entry.name));
+        if (!p.isWithin(outDir, path)) {
+          throw BackendStartupException(
+            'The bundled backend contains an invalid path: ${entry.name}',
+          );
+        }
+        Directory(p.dirname(path)).createSync(recursive: true);
+        final output = OutputFileStream(path);
+        try {
+          entry.writeContent(output);
+        } finally {
+          output.closeSync();
+        }
+        entry.clear();
+      }
+    } finally {
+      input.closeSync();
+    }
   }
 
   /// Prefer a `backend/.venv` interpreter if one has been set up (the usual

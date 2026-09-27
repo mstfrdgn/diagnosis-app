@@ -470,31 +470,35 @@ File: `frontend/lib/screens/settings_screen.dart`
 File: `backend/build_backend.py`
 
 ```bash
-pyinstaller \
-  --onefile \
-  --name diagnostic_backend \
-  --hidden-import orange3 \
-  --collect-all Orange \
-  backend/main.py
+python backend/build_backend.py                  # one file: dist/diagnostic_backend[.exe]
+python backend/build_backend.py --onedir --zip   # what the release app ships
 ```
 
-Output: `dist/diagnostic_backend` (Linux/Mac) or `dist/diagnostic_backend.exe` (Windows).
+Collects all of `Orange` (a `.pkcls` imports its learners by module path when
+unpickled) and all `uvicorn` submodules. Windows builds use `--noconsole`, or
+the backend would open a console window next to the app.
 
-Copy the binary into `frontend/assets/backend/` before `flutter build`.
+The release app ships the `--onedir` build zipped (`dist/diagnostic_backend.zip`
+plus `dist/diagnostic_backend.sha256`). One-file was measured at ~15 s per
+launch on Windows with Avast, since it unpacks ~270 MB to a fresh temp folder
+every time; one-folder starts in ~2.5 s once unpacked.
 
 Automation: `scripts/build_all.sh` / `scripts/build_all.ps1` that:
-1. Creates a Python venv, installs `requirements.txt`.
-2. Runs PyInstaller.
-3. Copies binary to Flutter assets.
+1. Creates a separate build venv (`backend/.venv-build`), installs `requirements.txt` + PyInstaller.
+2. Runs `build_backend.py --onedir --zip`.
+3. Replaces the contents of `frontend/assets/backend/` with the zip and its checksum.
 4. Runs `flutter build windows` / `flutter build macos`.
 
 ### 7.2 – Executable extraction at runtime
 
-`BackendManager` in release mode:
-1. Compute SHA256 of the bundled binary asset.
-2. Check if `{cacheDir}/diagnostic_backend` exists with matching SHA.
-3. If not, extract asset to cache dir, set executable permissions (chmod +x on Mac).
-4. Start process.
+`BackendManager` outside debug mode:
+1. Read the expected SHA256 from `assets/backend/diagnostic_backend.sha256`.
+2. If `{cacheDir}/backend/<sha256>/` has its `.unpacked` marker and the executable, use it.
+3. Otherwise copy the zip out of the asset bundle, verify its SHA256, and unpack it
+   (in a background isolate), `chmod +x` the executable on macOS, write the marker,
+   and delete the folders of earlier builds.
+4. Start the executable. The startup timeout is at least 60 s here: the first
+   launch of a new build waits for antivirus scanning.
 
 ### 7.3 – Port conflict handling
 
