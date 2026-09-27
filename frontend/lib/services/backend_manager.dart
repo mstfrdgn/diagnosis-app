@@ -46,8 +46,9 @@ class BackendManager {
         _port = tryPort;
         return;
       } on BackendStartupException {
-        _process?.kill();
-        _process = null;
+        // stop() kills the whole tree: with runInShell, a plain kill() only
+        // reaches the shell and orphans the Python server behind it.
+        await stop();
         if (attempt == 4) rethrow;
         // port may be occupied – let the loop try the next one
       }
