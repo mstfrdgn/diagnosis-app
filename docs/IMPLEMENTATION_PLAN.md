@@ -507,6 +507,29 @@ Automation: `scripts/build_all.sh` / `scripts/build_all.ps1` that:
 2. If bind fails (backend returns non-zero exit quickly), increment port by 1 and retry up to 5 times.
 3. Pass the resolved port to `ApiService`.
 
+### 7.4 – Windows installer (Inno Setup)
+
+Files: `installer/diagnostic_app.iss`, `scripts/build_installer.ps1`
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1        # release build first
+powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1  # -> installer\output\MedicalDiagnosisAssistant-<version>-setup.exe
+```
+
+Needs Inno Setup 6.3+. The script takes the version from `pubspec.yaml`, copies
+the MSVC runtime DLLs (`msvcp140`, `vcruntime140`, `vcruntime140_1`) out of
+System32 to ship next to the exe, and compiles the `.iss`.
+
+- Installs the whole `Release` folder to `Program Files\Medical Diagnosis Assistant`
+  (admin, x64 only). The backend zip is a Flutter asset inside it, so it has no
+  separate entry; the app still unpacks it to the cache folder (§7.2), which
+  works with a read-only install folder.
+- Start Menu shortcut always, Desktop shortcut as an optional (unchecked) task.
+- Uninstaller: kills a still-running `diagnostic_backend.exe` and removes the
+  unpacked backend from `%LOCALAPPDATA%\com.diagnostic\diagnostic_app\backend`.
+  User data in Documents (config, session CSVs, model configs) is kept.
+- `AppId` is fixed, so a newer installer upgrades an existing install in place.
+
 ---
 
 ## Phase 8 – Configuration Wizard, Grouped Input & Recent Models
@@ -606,7 +629,7 @@ App start
 | 9 | Settings screen | User can open and reload YAML | ✅ Done |
 | 10 | Configuration Wizard + Grouped Input + Recent Models | 3-step wizard, one input page per group, per-model config persisted in `model_configs.json`, recents on Home | ✅ Done |
 | 11 | PyInstaller bundle | Release binary works, extracted correctly by Flutter | ☐ Open |
-| 12 | Windows build | `flutter build windows` produces working installer | ☐ Open |
+| 12 | Windows build | `flutter build windows` produces working installer | ✅ Done |
 | 13 | macOS build | `flutter build macos` produces working `.app` | ☐ Open |
 
 ---

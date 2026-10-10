@@ -20,6 +20,10 @@ frontend/**/ephemeral/
 frontend/assets/backend/*
 !frontend/assets/backend/.gitkeep
 
+# Installer staging and output (scripts/build_installer.ps1)
+installer/build/
+installer/output/
+
 # Logs
 *.log
 
