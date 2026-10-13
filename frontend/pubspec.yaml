@@ -52,5 +52,5 @@ flutter:
 
   assets:
     - assets/config/app_config.yaml
-    # PyInstaller-built backend + its SHA256, placed here by scripts/build_all.*
-    - assets/backend/
+    - assets/backend/diagnostic_backend.zip
+    - assets/backend/diagnostic_backend.sha256
