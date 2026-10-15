@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../config/app_config.dart';
 import '../models/logged_session.dart';
+import 'batch_run_log.dart';
 import 'csv_service.dart';
 
 /// Outcome of [SessionLogService.load].
@@ -19,13 +20,15 @@ class SessionLog {
     required this.exists,
     required this.featureNames,
     required this.sessions,
+    this.batchRuns = const [],
     this.error,
   });
 
   const SessionLog.failure(this.path, this.error)
       : exists = false,
         featureNames = const [],
-        sessions = const [];
+        sessions = const [],
+        batchRuns = const [];
 
   /// Absolute path of the log this model writes to.
   final String path;
@@ -39,10 +42,50 @@ class SessionLog {
   /// Rows, newest first.
   final List<LoggedSession> sessions;
 
+  /// The model's batch runs, newest first. Kept apart from [sessions]
+  /// because they live in their own files; [entries] puts the two together.
+  final List<LoggedBatchRun> batchRuns;
+
   /// Human-readable reason the read failed, or null when it succeeded.
   final String? error;
 
   bool get succeeded => error == null;
+
+  /// Whether there is anything at all to show.
+  bool get isEmpty => sessions.isEmpty && batchRuns.isEmpty;
+
+  /// [sessions] and [batchRuns] merged into one list, newest first.
+  ///
+  /// Both inputs are already sorted, so this is a merge rather than a sort,
+  /// and sessions whose timestamp did not parse keep their place at the end.
+  List<SessionLogEntry> get entries {
+    final merged = <SessionLogEntry>[];
+    var s = 0, b = 0;
+    while (s < sessions.length || b < batchRuns.length) {
+      if (b == batchRuns.length) {
+        merged.add(sessions[s++]);
+      } else if (s == sessions.length) {
+        merged.add(batchRuns[b++]);
+      } else {
+        final sessionTime = sessions[s].timestamp;
+        merged.add(
+          sessionTime != null && !sessionTime.isBefore(batchRuns[b].timestamp)
+              ? sessions[s++]
+              : batchRuns[b++],
+        );
+      }
+    }
+    return merged;
+  }
+
+  SessionLog _withBatchRuns(List<LoggedBatchRun> runs) => SessionLog(
+        path: path,
+        exists: exists,
+        featureNames: featureNames,
+        sessions: sessions,
+        batchRuns: runs,
+        error: error,
+      );
 }
 
 /// What the Settings screen reports about the log folder as a whole:
@@ -53,13 +96,15 @@ class SessionLogSummary {
     required this.fileCount,
     required this.sessionCount,
     required this.unreadableFileCount,
+    this.batchRunCount = 0,
     this.error,
   });
 
   const SessionLogSummary.failure(this.error)
       : fileCount = 0,
         sessionCount = 0,
-        unreadableFileCount = 0;
+        unreadableFileCount = 0,
+        batchRunCount = 0;
 
   /// Per-model log files found in the folder.
   final int fileCount;
@@ -71,6 +116,10 @@ class SessionLogSummary {
   /// missing from [sessionCount], so the screen says so rather than
   /// presenting a total it knows is short.
   final int unreadableFileCount;
+
+  /// Batch result files in the folder, across every model. Counted as runs
+  /// rather than rows: one batch is one thing the user did.
+  final int batchRunCount;
 
   /// Human-readable reason the folder itself could not be listed, or null.
   final String? error;
@@ -110,15 +159,23 @@ class SessionLogService {
         ),
       );
       final file = File(path);
-      if (!await file.exists()) {
-        return SessionLog(
-          path: path,
-          exists: false,
-          featureNames: const [],
-          sessions: const [],
-        );
-      }
-      return parse(await file.readAsString(), path: path, config: config);
+      final log = await file.exists()
+          ? parse(await file.readAsString(), path: path, config: config)
+          : SessionLog(
+              path: path,
+              exists: false,
+              featureNames: const [],
+              sessions: const [],
+            );
+      if (!log.succeeded) return log;
+      return log._withBatchRuns(
+        await _loadBatchRuns(
+          Directory(p.dirname(path)),
+          modelPath: modelPath,
+          modelDisplayName: modelDisplayName,
+          config: config,
+        ),
+      );
     } on FileSystemException catch (e) {
       return SessionLog.failure(
         path ?? config.csvOutputPath,
@@ -126,6 +183,25 @@ class SessionLogService {
       );
     } catch (e) {
       return SessionLog.failure(path ?? config.csvOutputPath, '$e');
+    }
+  }
+
+  /// The model's batch runs. A folder that cannot be listed costs the screen
+  /// its batch entries, not the sessions that were read fine.
+  Future<List<LoggedBatchRun>> _loadBatchRuns(
+    Directory directory, {
+    required String modelPath,
+    required String? modelDisplayName,
+    required AppConfig config,
+  }) async {
+    try {
+      return await const BatchRunLog().loadRuns(
+        directory,
+        BatchRunLog.slugFor(modelPath, displayName: modelDisplayName),
+        config: config,
+      );
+    } on FileSystemException {
+      return const [];
     }
   }
 
@@ -151,9 +227,17 @@ class SessionLogService {
       var files = 0;
       var sessions = 0;
       var unreadable = 0;
+      var batchRuns = 0;
       await for (final entity in directory.list(followLinks: false)) {
         if (entity is! File) continue;
         final name = p.basename(entity.path);
+        if (BatchRunLog.isResultFileName(name)) {
+          batchRuns++;
+          continue;
+        }
+        // The index is a CSV in the same folder whose name could end like a
+        // session log's (an output_path of `runs.csv`, say) but is not one.
+        if (BatchRunLog.isIndexFileName(name)) continue;
         if (!CsvService.isModelLogFileName(name, config.csvOutputPath)) {
           continue;
         }
@@ -177,6 +261,7 @@ class SessionLogService {
         fileCount: files,
         sessionCount: sessions,
         unreadableFileCount: unreadable,
+        batchRunCount: batchRuns,
       );
     } on FileSystemException catch (e) {
       return SessionLogSummary.failure(e.osError?.message ?? e.message);

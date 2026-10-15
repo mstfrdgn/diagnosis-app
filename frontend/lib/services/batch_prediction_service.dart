@@ -11,6 +11,7 @@ import '../config/app_config.dart';
 import '../models/model_domain.dart';
 import '../models/orange_variable.dart';
 import 'api_service.dart';
+import 'batch_run_log.dart';
 import 'csv_service.dart';
 
 /// Thrown when the chosen file does not carry a column for every feature the
@@ -137,10 +138,12 @@ class BatchPredictionService {
             .keys
             .toList();
 
-    final outputFile = await _outputFile(
-      modelPath: modelPath,
-      modelDisplayName: modelDisplayName,
-      config: config,
+    final directory = await const CsvService().logDirectory(config);
+    await directory.create(recursive: true);
+    final slug = BatchRunLog.slugFor(modelPath, displayName: modelDisplayName);
+    final finishedAt = DateTime.now();
+    final outputFile = File(
+      p.join(directory.path, BatchRunLog.resultFileNameFor(slug, finishedAt)),
     );
     await outputFile.writeAsString(
       _buildCsv(
@@ -151,6 +154,25 @@ class BatchPredictionService {
         classLabels: classLabels,
       ),
     );
+
+    // The result file is what matters; losing the index entry only costs
+    // the Sessions screen the input file's name, so it must not fail a run
+    // whose predictions are already safely written.
+    try {
+      await const BatchRunLog().append(
+        directory,
+        slug,
+        BatchRunRecord(
+          timestamp: finishedAt,
+          inputFileName: p.basename(inputPath),
+          rowCount: dataRows.length,
+          failureCount: failures,
+          resultFileName: p.basename(outputFile.path),
+        ),
+      );
+    } on FileSystemException {
+      // See above.
+    }
 
     return BatchPredictionResult(
       rowCount: dataRows.length,
@@ -187,29 +209,11 @@ class BatchPredictionService {
     String modelPath,
     DateTime at, {
     String? displayName,
-  }) {
-    final slug = CsvService.modelSlug(modelPath, displayName: displayName);
-    return '${slug.isEmpty ? 'model' : slug}_batch_${_stamp(at)}.csv';
-  }
-
-  Future<File> _outputFile({
-    required String modelPath,
-    required String? modelDisplayName,
-    required AppConfig config,
-  }) async {
-    final directory = await const CsvService().logDirectory(config);
-    await directory.create(recursive: true);
-    return File(
-      p.join(
-        directory.path,
-        outputFileNameFor(
-          modelPath,
-          DateTime.now(),
-          displayName: modelDisplayName,
-        ),
-      ),
-    );
-  }
+  }) =>
+      BatchRunLog.resultFileNameFor(
+        BatchRunLog.slugFor(modelPath, displayName: displayName),
+        at,
+      );
 
   String _buildCsv({
     required List<String> header,
@@ -407,11 +411,5 @@ class BatchPredictionService {
   static String _cell(List<dynamic> row, int index) {
     if (index >= row.length) return '';
     return row[index]?.toString().trim() ?? '';
-  }
-
-  static String _stamp(DateTime at) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${at.year}${two(at.month)}${two(at.day)}'
-        '_${two(at.hour)}${two(at.minute)}${two(at.second)}';
   }
 }

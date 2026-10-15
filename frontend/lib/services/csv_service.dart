@@ -201,7 +201,7 @@ class CsvService {
     AppConfig config,
   ) {
     return [
-      _formatTimestamp(record.timestamp, config.csvTimestampFormat),
+      formatTimestamp(record.timestamp, config.csvTimestampFormat),
       ...featureNames.map((name) => record.inputs[name]?.toString() ?? ''),
       record.predictedClass,
       if (config.csvIncludeProbability)
@@ -217,7 +217,7 @@ class CsvService {
 
   /// Minimal strftime-style formatter supporting the tokens used by
   /// `csv_logging.timestamp_format` (%Y %m %d %H %M %S).
-  String _formatTimestamp(DateTime timestamp, String format) {
+  static String formatTimestamp(DateTime timestamp, String format) {
     String two(int n) => n.toString().padLeft(2, '0');
     return format
         .replaceAll('%Y', timestamp.year.toString().padLeft(4, '0'))

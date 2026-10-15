@@ -353,7 +353,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 /// What the log folder holds, as one line under its path: how many per-model
-/// logs are in it and how many sessions they add up to.
+/// logs are in it, how many sessions they add up to, and how many batch runs
+/// sit beside them.
 class _LogSummary extends StatelessWidget {
   const _LogSummary({required this.summary});
 
@@ -377,7 +378,7 @@ class _LogSummary extends StatelessWidget {
           scheme.error,
           'Could not read the log folder: $error',
         ),
-      SessionLogSummary(fileCount: 0) => (
+      SessionLogSummary(fileCount: 0, batchRunCount: 0) => (
           Icons.inbox_outlined,
           scheme.onSurfaceVariant,
           'No log files yet.',
@@ -386,7 +387,8 @@ class _LogSummary extends StatelessWidget {
           Icons.summarize_outlined,
           scheme.onSurfaceVariant,
           '${_count(s.fileCount, 'log file')} · '
-              '${_count(s.sessionCount, 'recorded session')}'
+              '${_count(s.sessionCount, 'recorded session')} · '
+              '${_count(s.batchRunCount, 'batch run')}'
               '${s.unreadableFileCount == 0 ? '' : ' · '
                   '${_count(s.unreadableFileCount, 'file')} could not be '
                   'read, so its rows are not counted'}',
