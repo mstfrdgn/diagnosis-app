@@ -4,13 +4,14 @@
 
 app:
   title: "Medical Diagnosis Assistant"
-  version: "1.0.0"
+  version: "1.1.0"
   theme: light                  # light | dark
 
 backend:
   host: "127.0.0.1"
-  port: 8765                    # Port FastAPI listens on
+  # fixed_port: 8765            # Optional: always use this port (default: a free one)
   startup_timeout_seconds: 15   # How long Flutter waits for the backend to be ready
+                                # (installed app: at least 180)
 
 model:
   default_path: ""              # Optional: pre-load a .pkcls file on startup

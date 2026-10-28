@@ -207,7 +207,7 @@ class _FakeBackendManager extends BackendManager {
   @override
   Future<void> start({
     required String host,
-    required int port,
+    int? port,
     required int startupTimeoutSeconds,
   }) async {}
 

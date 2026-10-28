@@ -5,12 +5,12 @@
 
 app:
   title: "Medical Diagnosis Assistant"
-  version: "1.0.0"
+  version: "1.1.0"
   theme: light
 
 backend:
   host: "127.0.0.1"
-  port: 8765
+  # fixed_port: 8765   # Optional: always use this port (default: a free one)
   startup_timeout_seconds: 15
 
 model:

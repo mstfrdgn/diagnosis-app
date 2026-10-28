@@ -7,7 +7,7 @@
 ; folder, and the app unpacks it to %LOCALAPPDATA% on first start.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.1.0"
 #endif
 #ifndef ReleaseDir
   #define ReleaseDir "..\frontend\build\windows\x64\runner\Release"
@@ -25,6 +25,7 @@
 ; Must match CompanyName\ProductName in frontend\windows\runner\Runner.rc:
 ; path_provider builds the app's cache folder from them.
 #define AppCacheDir "{localappdata}\com.diagnostic\diagnostic_app"
+#define AppSupportDir "{userappdata}\com.diagnostic\diagnostic_app"
 
 [Setup]
 ; Identifies the app across versions, so an update replaces the install
@@ -39,8 +40,9 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
-; {localappdata} is only touched by the uninstaller, to clear the backend cache
-; of the user running it; other users' caches are simply left behind.
+; {localappdata} and {userappdata} are only touched by the uninstaller, to clear
+; the backend cache and startup logs of the user running it; other users' are
+; simply left behind.
 UsedUserAreasWarning=no
 ; Flutter's Windows build is x64 only.
 ArchitecturesAllowed=x64compatible
@@ -83,4 +85,8 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#BackendExeName}"; Flags: r
 ; deliberately left alone.
 Type: filesandordirs; Name: "{#AppCacheDir}\backend"
 Type: dirifempty; Name: "{#AppCacheDir}"
+; Startup logs, in path_provider's application support folder.
+Type: filesandordirs; Name: "{#AppSupportDir}\logs"
+Type: dirifempty; Name: "{#AppSupportDir}"
+Type: dirifempty; Name: "{userappdata}\com.diagnostic"
 Type: dirifempty; Name: "{localappdata}\com.diagnostic"

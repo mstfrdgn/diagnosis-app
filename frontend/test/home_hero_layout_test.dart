@@ -1,7 +1,6 @@
 import 'package:diagnostic_app/config/app_config.dart';
 import 'package:diagnostic_app/config/app_config_notifier.dart';
 import 'package:diagnostic_app/models/model_domain.dart';
-import 'package:diagnostic_app/models/orange_variable.dart';
 import 'package:diagnostic_app/screens/home_screen.dart';
 import 'package:diagnostic_app/services/api_service.dart';
 import 'package:diagnostic_app/services/backend_manager.dart';
@@ -114,7 +113,7 @@ class _FakeBackendManager extends BackendManager {
   @override
   Future<void> start({
     required String host,
-    required int port,
+    int? port,
     required int startupTimeoutSeconds,
   }) async {}
 

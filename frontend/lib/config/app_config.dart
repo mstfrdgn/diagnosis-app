@@ -3,7 +3,7 @@ class AppConfig {
     this.appTitle = 'Medical Diagnosis Assistant',
     this.appTheme = 'light',
     this.backendHost = '127.0.0.1',
-    this.backendPort = 8765,
+    this.backendFixedPort,
     this.backendStartupTimeoutSeconds = 15,
     this.defaultModelPath = '',
     this.showRangeHints = true,
@@ -28,7 +28,12 @@ class AppConfig {
   final String appTitle;
   final String appTheme;
   final String backendHost;
-  final int backendPort;
+
+  /// Port the backend must use; null (the default) lets the OS pick a free
+  /// one on every start. Read from `backend.fixed_port`: the `backend.port`
+  /// key that config files from older versions carry is ignored, because
+  /// they all hold the old default 8765, which nobody chose.
+  final int? backendFixedPort;
   final int backendStartupTimeoutSeconds;
   final String defaultModelPath;
   final bool showRangeHints;
@@ -66,7 +71,10 @@ class AppConfig {
       appTitle: (app['title'] as String?) ?? 'Medical Diagnosis Assistant',
       appTheme: (app['theme'] as String?) ?? 'light',
       backendHost: (backend['host'] as String?) ?? '127.0.0.1',
-      backendPort: (backend['port'] as int?) ?? 8765,
+      backendFixedPort: switch (backend['fixed_port']) {
+        final int port when port > 0 => port,
+        _ => null,
+      },
       backendStartupTimeoutSeconds:
           (backend['startup_timeout_seconds'] as int?) ?? 15,
       defaultModelPath: (model['default_path'] as String?) ?? '',

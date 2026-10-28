@@ -495,17 +495,38 @@ Automation: `scripts/build_all.sh` / `scripts/build_all.ps1` that:
 1. Read the expected SHA256 from `assets/backend/diagnostic_backend.sha256`.
 2. If `{cacheDir}/backend/<sha256>/` has its `.unpacked` marker and the executable, use it.
 3. Otherwise copy the zip out of the asset bundle, verify its SHA256, and unpack it
-   (in a background isolate), `chmod +x` the executable on macOS, write the marker,
-   and delete the folders of earlier builds.
-4. Start the executable. The startup timeout is at least 60 s here: the first
-   launch of a new build waits for antivirus scanning.
+   (in a background isolate), writing a `.manifest` (size and path of every file),
+   `chmod +x` the executable on macOS, write the marker, and delete the folders
+   of earlier builds.
+4. Start the executable with `--log-file`. The startup timeout is at least 180 s
+   here: the first launch of a new build waits for antivirus scanning.
 
-### 7.3 – Port conflict handling
+### 7.3 – Ports, timeouts and startup failures
 
 `BackendManager.start()`:
-1. Try port from config.
-2. If bind fails (backend returns non-zero exit quickly), increment port by 1 and retry up to 5 times.
-3. Pass the resolved port to `ApiService`.
+1. Bind port 0 to let the OS pick a free port and pass it to the backend
+   (`backend.fixed_port` in the config overrides this; it then falls back to
+   the next 4 ports if taken).
+2. Only a backend that exits with a bind error is retried on another port. One
+   that is alive but does not answer within the timeout is left running: the
+   error screen shows, the app keeps polling in the background and moves on by
+   itself if it comes up, and Retry waits for that same process again.
+3. Every other failure becomes a `StartupFailure` with a cause (files missing,
+   antivirus, security policy, crash, not responding, connection blocked, disk
+   full, ...) worked out from the OS error, exit code, the backend's own log and
+   a check of the unpacked files against `.manifest`. The error screen shows it
+   in plain words with advice, the technical detail folded away, and offers
+   Retry, Repair (kill every backend, delete the unpacked folder, unpack and
+   start again), Open log folder and Copy diagnostic report.
+
+Logs: `app.log` (startup steps, timings, exit codes, backend pipe output) and
+`backend.log` (written by the backend itself) in
+`{applicationSupportDir}/logs`, i.e. `%APPDATA%\com.diagnostic\diagnostic_app\logs`
+on Windows. Each app start moves the previous pair to `*.prev.log`.
+
+`backend/main.py` sets up its log file before importing anything heavy and
+turns any startup exception into a logged traceback and exit code 70: uncaught,
+a windowed PyInstaller build would show it in a message box and hang there.
 
 ### 7.4 – Windows installer (Inno Setup)
 
@@ -526,7 +547,8 @@ System32 to ship next to the exe, and compiles the `.iss`.
   works with a read-only install folder.
 - Start Menu shortcut always, Desktop shortcut as an optional (unchecked) task.
 - Uninstaller: kills a still-running `diagnostic_backend.exe` and removes the
-  unpacked backend from `%LOCALAPPDATA%\com.diagnostic\diagnostic_app\backend`.
+  unpacked backend from `%LOCALAPPDATA%\com.diagnostic\diagnostic_app\backend`
+  and the startup logs from `%APPDATA%\com.diagnostic\diagnostic_app\logs`.
   User data in Documents (config, session CSVs, model configs) is kept.
 - `AppId` is fixed, so a newer installer upgrades an existing install in place.
 

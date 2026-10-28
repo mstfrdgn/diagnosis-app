@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../config/app_config_notifier.dart';
+import '../services/backend_manager.dart';
 import '../services/csv_service.dart';
 import '../services/session_log_service.dart';
 import '../theme/app_theme.dart';
@@ -149,6 +150,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final config = context.watch<AppConfigNotifier>().config;
+    // Nullable so the screen also renders where no backend is provided.
+    final backend = context.watch<BackendNotifier?>();
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: Scrollbar(
@@ -308,7 +311,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const Divider(height: 1, indent: 20, endIndent: 20),
                         _ConfigRow(
                           'Backend',
-                          '${config.backendHost}:${config.backendPort}',
+                          // The port is picked at startup unless fixed in
+                          // the config, so only the running one is accurate.
+                          backend?.baseUrl ?? config.backendHost,
                         ),
                         const Divider(height: 1, indent: 20, endIndent: 20),
                         _ConfigRow(
