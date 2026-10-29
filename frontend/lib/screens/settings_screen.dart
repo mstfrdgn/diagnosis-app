@@ -17,14 +17,36 @@ import '../theme/app_theme.dart';
 /// they add up to, where the app and backend logs are, and which version of
 /// the app is running.
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.openFolder = folder_opener.openFolder});
+  const SettingsScreen({
+    super.key,
+    this.openFolder = folder_opener.openFolder,
+    this.openInEditor = _openInDefaultEditor,
+  });
 
   /// Opens a folder in the platform file manager; replaced in tests.
   final Future<void> Function(String path) openFolder;
 
+  /// Opens a file in the system default editor; replaced in tests.
+  final Future<void> Function(String path) openInEditor;
+
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
+
+Future<void> _openInDefaultEditor(String path) async {
+  if (Platform.isWindows) {
+    // 'start' is a cmd.exe builtin; the empty title arg avoids it being
+    // misread as the window title when the path contains spaces/quotes.
+    await Process.run('cmd', ['/c', 'start', '', path]);
+  } else if (Platform.isMacOS) {
+    await Process.run('open', [path]);
+  } else {
+    await Process.run('xdg-open', [path]);
+  }
+}
+
+/// The cards on the screen whose buttons report back.
+enum _SettingsCard { config, sessionLogs, appLogs }
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String? _configPath;
@@ -33,8 +55,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   SessionLogSummary? _logSummary;
   String? _appVersion;
   bool _reloading = false;
-  String? _statusMessage;
-  bool _statusIsError = false;
+  /// The outcome of the last button pressed, shown in that button's card.
+  ({_SettingsCard card, String message, bool isError})? _status;
 
   /// Shared by the [Scrollbar] and the body it wraps; see the note in
   /// `home_screen.dart` for why the fallback controller will not do.
@@ -92,18 +114,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (path == null) return;
 
     try {
-      if (Platform.isWindows) {
-        // 'start' is a cmd.exe builtin; the empty title arg avoids it being
-        // misread as the window title when the path contains spaces/quotes.
-        await Process.run('cmd', ['/c', 'start', '', path]);
-      } else if (Platform.isMacOS) {
-        await Process.run('open', [path]);
-      } else {
-        await Process.run('xdg-open', [path]);
-      }
-      _setStatus('Opened $path in the default editor.');
+      await widget.openInEditor(path);
+      _setStatus(_SettingsCard.config, 'Opened $path in the default editor.');
     } catch (e) {
-      _setStatus('Could not open editor: $e', isError: true);
+      _setStatus(_SettingsCard.config, 'Could not open editor: $e',
+          isError: true);
     }
   }
 
@@ -116,9 +131,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await Directory(path).create(recursive: true);
       await widget.openFolder(path);
-      _setStatus('Opened $path.');
+      _setStatus(_SettingsCard.sessionLogs, 'Opened $path.');
     } catch (e) {
-      _setStatus('Could not open folder: $e', isError: true);
+      _setStatus(_SettingsCard.sessionLogs, 'Could not open folder: $e',
+          isError: true);
     }
   }
 
@@ -130,35 +146,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       await widget.openFolder(path);
-      _setStatus('Opened $path.');
+      _setStatus(_SettingsCard.appLogs, 'Opened $path.');
     } catch (e) {
-      _setStatus('Could not open folder: $e', isError: true);
+      _setStatus(_SettingsCard.appLogs, 'Could not open folder: $e',
+          isError: true);
     }
   }
 
   Future<void> _reloadConfig() async {
     setState(() {
       _reloading = true;
-      _statusMessage = null;
+      _status = null;
     });
     try {
       await context.read<AppConfigNotifier>().reload();
       // output_path may have moved the logs elsewhere.
       await _loadPaths();
-      _setStatus('Config reloaded.');
+      _setStatus(_SettingsCard.config, 'Config reloaded.');
     } catch (e) {
-      _setStatus('Failed to reload config: $e', isError: true);
+      _setStatus(_SettingsCard.config, 'Failed to reload config: $e',
+          isError: true);
     } finally {
       if (mounted) setState(() => _reloading = false);
     }
   }
 
-  void _setStatus(String message, {bool isError = false}) {
+  void _setStatus(_SettingsCard card, String message, {bool isError = false}) {
     if (!mounted) return;
-    setState(() {
-      _statusMessage = message;
-      _statusIsError = isError;
-    });
+    setState(() => _status = (card: card, message: message, isError: isError));
+  }
+
+  /// The status line for [card], spaced to sit under its buttons, if the
+  /// last message belongs to it.
+  List<Widget> _statusIn(_SettingsCard card) {
+    final status = _status;
+    if (status == null || status.card != card) return const [];
+    return [
+      const SizedBox(height: 16),
+      _StatusLine(message: status.message, isError: status.isError),
+    ];
   }
 
   @override
@@ -236,34 +262,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ],
                           ),
-                          if (_statusMessage != null) ...[
-                            const SizedBox(height: 16),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  _statusIsError
-                                      ? Icons.error_outline
-                                      : Icons.check_circle_outline,
-                                  size: 16,
-                                  color: _statusIsError
-                                      ? theme.colorScheme.error
-                                      : theme.colorScheme.primary,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _statusMessage!,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: _statusIsError
-                                          ? theme.colorScheme.error
-                                          : theme.colorScheme.primary,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                          ..._statusIn(_SettingsCard.config),
                         ],
                       ),
                     ),
@@ -311,6 +310,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 size: 20),
                             label: const Text('Open folder'),
                           ),
+                          ..._statusIn(_SettingsCard.sessionLogs),
                         ],
                       ),
                     ),
@@ -357,6 +357,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 size: 20),
                             label: const Text('Open log folder'),
                           ),
+                          ..._statusIn(_SettingsCard.appLogs),
                         ],
                       ),
                     ),
@@ -478,6 +479,38 @@ class _LogSummary extends StatelessWidget {
 
   static String _count(int value, String noun) =>
       '$value $noun${value == 1 ? '' : 's'}';
+}
+
+/// A button's outcome: a tick and the message, or an error icon and the
+/// error, both in the matching colour.
+class _StatusLine extends StatelessWidget {
+  const _StatusLine({required this.message, required this.isError});
+
+  final String message;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = isError ? theme.colorScheme.error : theme.colorScheme.primary;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          isError ? Icons.error_outline : Icons.check_circle_outline,
+          size: 16,
+          color: color,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            message,
+            style: theme.textTheme.bodySmall?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _ConfigRow extends StatelessWidget {

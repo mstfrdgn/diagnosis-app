@@ -12,10 +12,12 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
-/// On macOS app.log and backend.log sit under ~/Library/Application Support,
-/// which Finder hides, so the Settings button is how users reach them. It has
-/// to open the same folder the backend manager writes to, not the CSV folder
-/// next to it.
+/// The Settings buttons that hand a path to the OS. On macOS app.log and
+/// backend.log sit under ~/Library/Application Support, which Finder hides,
+/// so the "Open log folder" button is how users reach them; it has to open
+/// the folder the backend manager writes to, not the CSV folder next to it.
+/// Each button reports back in its own card, not in whichever card happens
+/// to come first.
 void main() {
   late Directory tempDir;
 
@@ -27,7 +29,7 @@ void main() {
       buildNumber: '',
       buildSignature: '',
     );
-    tempDir = Directory.systemTemp.createTempSync('settings_log_folder');
+    tempDir = Directory.systemTemp.createTempSync('settings_buttons');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
       const MethodChannel('plugins.flutter.io/path_provider'),
@@ -37,10 +39,11 @@ void main() {
 
   tearDown(() => tempDir.deleteSync(recursive: true));
 
-  testWidgets('Open log folder opens the folder holding app.log',
-      (tester) async {
-    final logDir = p.join(tempDir.path, 'logs');
-    final opened = <String>[];
+  /// Every path handed to the OS, in order, by either seam.
+  late List<String> opened;
+
+  Future<void> pumpSettings(WidgetTester tester) async {
+    opened = [];
     final backend = BackendNotifier(
       _FakeBackendManager(StartupLog(baseDirectory: () async => tempDir)),
       const AppConfig(),
@@ -58,6 +61,7 @@ void main() {
           child: MaterialApp(
             home: SettingsScreen(
               openFolder: (path) async => opened.add(path),
+              openInEditor: (path) async => opened.add(path),
             ),
           ),
         ),
@@ -66,16 +70,61 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 200));
     });
     await tester.pump();
+  }
 
+  /// Taps [label] for real: the CSV button creates its folder on disk first.
+  Future<void> tapButton(WidgetTester tester, String label) async {
+    final button = find.ancestor(
+      of: find.text(label),
+      matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+    );
+    await tester.ensureVisible(button);
+    await tester.runAsync(() async {
+      await tester.tap(button);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pump();
+  }
+
+  /// The card whose heading is [title].
+  Finder card(String title) =>
+      find.ancestor(of: find.text(title), matching: find.byType(Card));
+
+  testWidgets('Open log folder opens the folder holding app.log',
+      (tester) async {
+    await pumpSettings(tester);
+    final logDir = p.join(tempDir.path, 'logs');
     expect(find.text(logDir), findsOneWidget);
 
-    final button = find.widgetWithText(OutlinedButton, 'Open log folder');
-    await tester.ensureVisible(button);
-    await tester.tap(button);
-    await tester.pump();
+    await tapButton(tester, 'Open log folder');
 
     expect(opened, [logDir]);
-    expect(find.text('Opened $logDir.'), findsOneWidget);
+  });
+
+  testWidgets('each button reports back in its own card only', (tester) async {
+    await pumpSettings(tester);
+
+    const cards = ['app_config.yaml', 'CSV folder', 'Log folder'];
+    const buttons = {
+      'app_config.yaml': 'Open in editor',
+      'CSV folder': 'Open folder',
+      'Log folder': 'Open log folder',
+    };
+
+    for (final title in cards) {
+      await tapButton(tester, buttons[title]!);
+      final message = title == 'app_config.yaml'
+          ? 'Opened ${opened.last} in the default editor.'
+          : 'Opened ${opened.last}.';
+
+      for (final other in cards) {
+        expect(
+          find.descendant(of: card(other), matching: find.text(message)),
+          other == title ? findsOneWidget : findsNothing,
+          reason: '"${buttons[title]}" message in the $other card',
+        );
+      }
+    }
   });
 }
 
