@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +13,7 @@ import 'screens/result_screen.dart';
 import 'screens/sessions_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/backend_manager.dart';
+import 'services/folder_opener.dart';
 import 'theme/app_theme.dart';
 
 // ── router ────────────────────────────────────────────────────────────────────
@@ -364,16 +364,7 @@ class _ErrorScreen extends StatelessWidget {
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final path = (await notifier.logDirectory).path;
-      if (Platform.isWindows) {
-        // explorer.exe exits non-zero even when it opened the window, so its
-        // exit code says nothing about success.
-        await Process.run('explorer', [path]);
-      } else if (Platform.isMacOS) {
-        await Process.run('open', [path]);
-      } else {
-        await Process.run('xdg-open', [path]);
-      }
+      await openFolder((await notifier.logDirectory).path);
     } catch (e) {
       messenger.showSnackBar(
         SnackBar(content: Text('Could not open the log folder: $e')),

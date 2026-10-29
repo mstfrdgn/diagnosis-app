@@ -7,15 +7,20 @@ import 'package:provider/provider.dart';
 import '../config/app_config_notifier.dart';
 import '../services/backend_manager.dart';
 import '../services/csv_service.dart';
+import '../services/folder_opener.dart' as folder_opener;
 import '../services/session_log_service.dart';
 import '../theme/app_theme.dart';
 
 /// Shows the location of `app_config.yaml`, lets the user open it in their
 /// system default editor, and reload it into [AppConfigNotifier] without
 /// restarting the app. Also shows where session CSV logs are written, what
-/// they add up to, and which version of the app is running.
+/// they add up to, where the app and backend logs are, and which version of
+/// the app is running.
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.openFolder = folder_opener.openFolder});
+
+  /// Opens a folder in the platform file manager; replaced in tests.
+  final Future<void> Function(String path) openFolder;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -24,6 +29,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String? _configPath;
   String? _csvDirPath;
+  String? _appLogDirPath;
   SessionLogSummary? _logSummary;
   String? _appVersion;
   bool _reloading = false;
@@ -49,8 +55,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadPaths() async {
     final notifier = context.read<AppConfigNotifier>();
+    final backend = context.read<BackendNotifier?>();
     final path = await notifier.configFilePath();
     final csvDir = await const CsvService().logDirectory(notifier.config);
+    final appLogDir = await backend?.logDirectory;
     // Reads every log in the folder, so it is kept out of the path lookup's
     // setState: the folder shows up straight away and the totals follow.
     final summary =
@@ -59,6 +67,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _configPath = path;
       _csvDirPath = csvDir.path;
+      _appLogDirPath = appLogDir?.path;
       _logSummary = summary;
     });
   }
@@ -106,15 +115,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       await Directory(path).create(recursive: true);
-      if (Platform.isWindows) {
-        // explorer.exe exits non-zero even when it opened the window, so its
-        // exit code says nothing about success.
-        await Process.run('explorer', [path]);
-      } else if (Platform.isMacOS) {
-        await Process.run('open', [path]);
-      } else {
-        await Process.run('xdg-open', [path]);
-      }
+      await widget.openFolder(path);
+      _setStatus('Opened $path.');
+    } catch (e) {
+      _setStatus('Could not open folder: $e', isError: true);
+    }
+  }
+
+  /// Opens the folder holding `app.log` and `backend.log`. On macOS it sits
+  /// under ~/Library, which Finder hides, so this is the way users find it.
+  Future<void> _openAppLogFolder() async {
+    final path = _appLogDirPath;
+    if (path == null) return;
+
+    try {
+      await widget.openFolder(path);
       _setStatus('Opened $path.');
     } catch (e) {
       _setStatus('Could not open folder: $e', isError: true);
@@ -295,6 +310,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: const Icon(Icons.folder_open_outlined,
                                 size: 20),
                             label: const Text('Open folder'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  const SectionHeader(
+                    title: 'App logs',
+                    subtitle: 'What the app and its backend did at startup. '
+                        'Send these files along when reporting a problem.',
+                  ),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.folder_outlined,
+                                  size: 18,
+                                  color: theme.colorScheme.onSurfaceVariant),
+                              const SizedBox(width: 8),
+                              Text('Log folder',
+                                  style: theme.textTheme.titleSmall),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SelectableText(
+                            _appLogDirPath ??
+                                (backend == null
+                                    ? 'Not available without a backend.'
+                                    : 'Locating the log folder…'),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          OutlinedButton.icon(
+                            onPressed: _appLogDirPath == null
+                                ? null
+                                : _openAppLogFolder,
+                            icon: const Icon(Icons.folder_open_outlined,
+                                size: 20),
+                            label: const Text('Open log folder'),
                           ),
                         ],
                       ),

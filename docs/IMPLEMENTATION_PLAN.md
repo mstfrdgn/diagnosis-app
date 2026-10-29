@@ -650,9 +650,15 @@ App start
 | 8 | Config-driven UI | All result display / dialog order settings take effect | ✅ Done |
 | 9 | Settings screen | User can open and reload YAML | ✅ Done |
 | 10 | Configuration Wizard + Grouped Input + Recent Models | 3-step wizard, one input page per group, per-model config persisted in `model_configs.json`, recents on Home | ✅ Done |
-| 11 | PyInstaller bundle | Release binary works, extracted correctly by Flutter | ☐ Open |
+| 11 | PyInstaller bundle | Release binary works, extracted correctly by Flutter | ✅ Done — tested on a second, clean Windows machine (no Python, no Orange) and on an Intel iMac |
 | 12 | Windows build | `flutter build windows` produces working installer | ✅ Done |
-| 13 | macOS build | `flutter build macos` produces working `.app` | ☐ Open |
+| 13 | macOS build | `flutter build macos` produces working `.app` | ✅ Done — see note below |
+
+**macOS note.** The `.app` and its bundled backend were built and tested on
+an Intel iMac. The app is unsigned and not notarized, so on first launch users
+have to get past Gatekeeper: right-click the app > **Open**, or **System
+Settings > Privacy & Security > Open Anyway**. Apple Silicon Macs should run it
+through Rosetta, but this is untested.
 
 ---
 
@@ -662,6 +668,6 @@ App start
 |------|-----------|
 | PyInstaller + Orange3 binary size (~300 MB) | Use `--exclude-module` for unused Orange add-ons; consider `--onedir` instead of `--onefile` for faster startup |
 | Orange API differences across versions | Pin `orange3` version in `requirements.txt`; test domain introspection against actual model files |
-| Port 8765 already in use on user's machine | Implement port-retry logic (Phase 7.3) |
-| Flutter process.kill() doesn't terminate Python tree on Windows | Use `taskkill /F /T /PID` on Windows to kill entire process tree |
-| macOS Gatekeeper blocking unsigned binary | Document notarization steps for distribution; provide developer mode workaround |
+| ~~Port 8765 already in use on user's machine~~ | ✅ Resolved: the backend gets a free port from the OS (`backend.fixed_port` overrides it); see Phase 7.3 |
+| ~~Flutter process.kill() doesn't terminate Python tree on Windows~~ | ✅ Resolved: `taskkill /F /T /PID` kills the whole process tree |
+| Installer and app are unsigned, so antivirus and SmartScreen / Gatekeeper can delay or block them. In testing, Windows Defender held the exe for ~27 s on first launch, and Avast ran the installer in its sandbox, where it showed an "administrator required" warning before the real run | Code signing (Windows) and Apple notarization would reduce this, but need paid certificates. Until then: the long startup timeout covers a scan, the startup error screen names antivirus as a cause, and on macOS users open the app via right-click > Open or Privacy & Security > Open Anyway |
