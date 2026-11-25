@@ -117,27 +117,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await context.read<AppConfigNotifier>().setPreference(preference, value);
       if (!mounted) return;
-      // An earlier failure no longer holds.
-      if (_status?.card == _SettingsCard.preferences) {
+      // An earlier failure to save or to reload no longer holds.
+      final status = _status;
+      if (status != null &&
+          status.isError &&
+          (status.card == _SettingsCard.preferences ||
+              status.card == _SettingsCard.config)) {
         setState(() => _status = null);
       }
-    } on FileSystemException catch (e) {
-      _setStatus(
-        _SettingsCard.preferences,
-        'Not saved: app_config.yaml could not be read or written '
-        '(${e.osError?.message ?? e.message}).',
-        isError: true,
-      );
     } catch (e) {
       _setStatus(
         _SettingsCard.preferences,
-        'Not saved: app_config.yaml contains an error. Correct it under '
-        'Advanced settings, or delete the file and press Reload to start over '
-        'with the defaults. ($e)',
+        'Not saved: ${_describeConfigError(e)}',
         isError: true,
       );
     }
   }
+
+  /// What is wrong with `app_config.yaml`, and what to do about it.
+  static String _describeConfigError(Object error) => switch (error) {
+        FileSystemException() => 'app_config.yaml could not be read or written '
+            '(${error.osError?.message ?? error.message}).',
+        _ => 'app_config.yaml contains an error. Correct it under Advanced '
+            'settings and press Reload, or delete the file and press Reload '
+            'to start over with the defaults. ($error)',
+      };
 
   Future<void> _openInEditor() async {
     final path = _configPath;
@@ -189,7 +193,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _status = null;
     });
     try {
-      await context.read<AppConfigNotifier>().reload();
+      try {
+        await context.read<AppConfigNotifier>().reload();
+      } catch (e) {
+        _setStatus(
+          _SettingsCard.config,
+          'Not reloaded, the settings in use are kept: '
+          '${_describeConfigError(e)}',
+          isError: true,
+        );
+        return;
+      }
       // output_path may have moved the logs elsewhere.
       await _loadPaths();
       _setStatus(_SettingsCard.config, 'Config reloaded.');
@@ -220,7 +234,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final config = context.watch<AppConfigNotifier>().config;
+    final notifier = context.watch<AppConfigNotifier>();
+    final config = notifier.config;
     // Nullable so the screen also renders where no backend is provided.
     final backend = context.watch<BackendNotifier?>();
     return Scaffold(
@@ -237,6 +252,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (notifier.startupError case final error?) ...[
+                    _DefaultsInUseNotice(message: _describeConfigError(error)),
+                    const SizedBox(height: 32),
+                  ],
                   const SectionHeader(
                     title: 'Preferences',
                     subtitle: 'Changes are saved and take effect immediately.',
@@ -455,6 +474,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown while the app runs on the defaults because `app_config.yaml` could
+/// not be used at startup.
+class _DefaultsInUseNotice extends StatelessWidget {
+  const _DefaultsInUseNotice({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onErrorContainer;
+    return Card(
+      color: theme.colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.warning_amber_rounded, color: color),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Your settings could not be read. The defaults are in use.',
+                    style: theme.textTheme.titleSmall?.copyWith(color: color),
+                  ),
+                  const SizedBox(height: 6),
+                  SelectableText(
+                    message,
+                    style: theme.textTheme.bodySmall?.copyWith(color: color),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

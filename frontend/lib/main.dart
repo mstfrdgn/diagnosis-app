@@ -14,7 +14,7 @@ import 'services/model_config_store.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final config = await ConfigLoader.load();
+  final (:config, error: configError) = await ConfigLoader.loadOrDefaults();
   final modelConfigEntries = await ModelConfigStore.load();
 
   final backendManager = BackendManager();
@@ -31,7 +31,7 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider<AppConfigNotifier>.value(
-          value: AppConfigNotifier(config),
+          value: AppConfigNotifier(config, startupError: configError),
         ),
         ChangeNotifierProvider<ModelConfigNotifier>.value(
           value: ModelConfigNotifier(modelConfigEntries),

@@ -46,7 +46,9 @@ void main() {
   Future<void> pumpSettings(WidgetTester tester, String yaml) async {
     configFile.writeAsStringSync(yaml);
     await tester.runAsync(() async {
-      notifier = AppConfigNotifier(await ConfigLoader.load());
+      // As in main().
+      final (:config, :error) = await ConfigLoader.loadOrDefaults();
+      notifier = AppConfigNotifier(config, startupError: error);
       final router = GoRouter(
         routes: [
           GoRoute(path: '/', builder: (_, __) => const SettingsScreen()),
@@ -146,15 +148,160 @@ void main() {
     expect(notifier.config.appTheme, 'dark');
   });
 
-  testWidgets('a broken file is reported and left as it is', (tester) async {
+  group('a broken file', () {
     const broken = 'app:\n  theme: [light\n';
-    await pumpSettings(tester, broken);
+    const fixed = 'app:\n  theme: dark\n  title: Mine\n'
+        'form:\n  show_range_hints: false\n';
+    const warning = 'Your settings could not be read. The defaults are in use.';
 
-    await tap(tester, switchFor('Show range hints'));
+    /// The message the YAML parser gives for [yaml].
+    String parseError(String yaml) {
+      try {
+        loadYaml(yaml);
+      } catch (e) {
+        return '$e';
+      }
+      throw StateError('valid YAML');
+    }
 
-    expect(find.textContaining('Not saved'), findsOneWidget);
-    expect(configFile.readAsStringSync(), broken);
-    expect(notifier.config.showRangeHints, isTrue);
+    /// Finds [text] as part of a message in the card headed [title].
+    Finder inCard(String title, String text) => find.descendant(
+          of: find.ancestor(
+              of: find.text(title), matching: find.byType(Card)),
+          matching: find.textContaining(text),
+        );
+    Finder inConfigCard(String text) => inCard('app_config.yaml', text);
+
+    Future<void> reload(WidgetTester tester) =>
+        tap(tester, find.text('Reload'));
+
+    testWidgets('is reported on reload, keeping the settings in use',
+        (tester) async {
+      await pumpSettings(tester, fixed);
+      expect(find.text(warning), findsNothing);
+      final inUse = notifier.config;
+
+      configFile.writeAsStringSync(broken);
+      await reload(tester);
+
+      expect(find.text('Config reloaded.'), findsNothing);
+      expect(inConfigCard('Not reloaded'), findsOneWidget);
+      expect(inConfigCard(parseError(broken)), findsOneWidget);
+      expect(notifier.config, same(inUse));
+      expect(notifier.config.appTheme, 'dark');
+      // These are not the defaults.
+      expect(find.text(warning), findsNothing);
+      expect(configFile.readAsStringSync(), broken);
+      // The button is ready for another attempt.
+      expect(find.text('Reload'), findsOneWidget);
+    });
+
+    testWidgets('is not saved to, until it is fixed and reloaded',
+        (tester) async {
+      await pumpSettings(tester, fixed);
+      configFile.writeAsStringSync(broken);
+      await reload(tester);
+
+      await tap(tester, switchFor('CSV logging'));
+      expect(find.textContaining('Not saved'), findsOneWidget);
+      expect(find.textContaining(parseError(broken)), findsOneWidget);
+      expect(configFile.readAsStringSync(), broken);
+      expect(notifier.config.csvLoggingEnabled, isTrue);
+
+      configFile.writeAsStringSync(
+          fixed.replaceFirst('title: Mine', 'title: Corrected'));
+      await reload(tester);
+      expect(inConfigCard('Config reloaded.'), findsOneWidget);
+      expect(find.textContaining('Not saved'), findsNothing);
+      expect(notifier.config.appTitle, 'Corrected');
+
+      await tap(tester, switchFor('CSV logging'));
+      expect(find.textContaining('Not saved'), findsNothing);
+      expect(stored(Preference.csvLoggingEnabled), isFalse);
+      expect(stored(Preference.theme), 'dark');
+      expect(notifier.config.csvLoggingEnabled, isFalse);
+    });
+
+    testWidgets('at startup is warned about until it is fixed',
+        (tester) async {
+      await pumpSettings(tester, broken);
+      expect(notifier.config, same(AppConfig.defaults));
+      expect(inCard(warning, parseError(broken)), findsOneWidget);
+
+      await tap(tester, switchFor('Show range hints'));
+      expect(inCard('Appearance', 'Not saved'), findsOneWidget);
+      expect(inCard('Appearance', parseError(broken)), findsOneWidget);
+      expect(configFile.readAsStringSync(), broken);
+      expect(notifier.config.showRangeHints, isTrue);
+      expect(find.text(warning), findsOneWidget);
+
+      // Half corrected: the warning keeps up with the file.
+      const stillBroken = 'app:\n  theme: dark\n  title: "Mine\n';
+      configFile.writeAsStringSync(stillBroken);
+      await reload(tester);
+      expect(inConfigCard(parseError(stillBroken)), findsOneWidget);
+      expect(inCard(warning, parseError(stillBroken)), findsOneWidget);
+      expect(find.textContaining(parseError(broken)), findsNothing);
+
+      configFile.writeAsStringSync(fixed);
+      await reload(tester);
+      expect(find.text(warning), findsNothing);
+      expect(inConfigCard('Config reloaded.'), findsOneWidget);
+      expect(notifier.config.appTheme, 'dark');
+
+      await tap(tester, switchFor('Show range hints'));
+      expect(stored(Preference.showRangeHints), isTrue);
+      expect(notifier.config.showRangeHints, isTrue);
+    });
+
+    testWidgets('fixed without a reload is used by the next save',
+        (tester) async {
+      await pumpSettings(tester, broken);
+      await reload(tester);
+      expect(inConfigCard('Not reloaded'), findsOneWidget);
+
+      configFile.writeAsStringSync(fixed);
+      await tap(tester, switchFor('CSV logging'));
+
+      expect(find.text(warning), findsNothing);
+      expect(inConfigCard('Not reloaded'), findsNothing);
+      expect(notifier.config.appTitle, 'Mine');
+      expect(stored(Preference.csvLoggingEnabled), isFalse);
+    });
+
+    testWidgets('deleted and reloaded starts over with the defaults',
+        (tester) async {
+      await pumpSettings(tester, broken);
+      configFile.deleteSync();
+      await reload(tester);
+      expect(find.text(warning), findsNothing);
+      expect(inConfigCard('Config reloaded.'), findsOneWidget);
+      expect(configFile.existsSync(), isTrue);
+    });
+
+    test('is any that is not a YAML mapping or cannot be read', () async {
+      for (final yaml in [broken, '- a\n- b\n', 'just text', 'a: 1\na: 2\n']) {
+        configFile.writeAsStringSync(yaml);
+        await expectLater(ConfigLoader.load(), throwsFormatException,
+            reason: yaml);
+      }
+      // Not UTF-8.
+      configFile.writeAsBytesSync([0x61, 0x3a, 0x20, 0xff]);
+      await expectLater(
+          ConfigLoader.load(), throwsA(isA<FileSystemException>()));
+      final (:config, :error) = await ConfigLoader.loadOrDefaults();
+      expect(config, same(AppConfig.defaults));
+      expect(error, isA<FileSystemException>());
+    });
+
+    test('is not one that is empty or holds only comments', () async {
+      for (final yaml in ['', '# nothing here\n']) {
+        configFile.writeAsStringSync(yaml);
+        final (:config, :error) = await ConfigLoader.loadOrDefaults();
+        expect(config, same(AppConfig.defaults));
+        expect(error, isNull);
+      }
+    });
   });
 
   testWidgets('says so when auto_open_after_result keeps the dialog away',

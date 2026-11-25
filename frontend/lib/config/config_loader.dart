@@ -18,17 +18,27 @@ abstract final class ConfigLoader {
   ///   2. Bundled assets/config/app_config.yaml – shipped default
   /// On first launch the bundled file is copied to the documents dir so the
   /// user can edit it without recompiling.
-  /// Any parse error falls back to [AppConfig.defaults] silently.
+  /// Throws when the file cannot be read or is not a YAML mapping.
   static Future<AppConfig> load() async {
+    final userFile = await _userFile();
+    final yaml = loadYaml(await userFile.readAsString());
+    // Nothing but comments, so every key is missing.
+    if (yaml == null) return AppConfig.defaults;
+    if (yaml is! Map) {
+      throw const FormatException('the file holds no settings');
+    }
+    return AppConfig.fromYaml(yaml);
+  }
+
+  /// Like [load], but falls back to [AppConfig.defaults] when the file cannot
+  /// be used, so that the app always starts, and returns the error as well.
+  static Future<({AppConfig config, Object? error})> loadOrDefaults() async {
     try {
-      final userFile = await _userFile();
-      final content = await userFile.readAsString();
-      final yaml = loadYaml(content);
-      if (yaml is Map) return AppConfig.fromYaml(yaml);
+      return (config: await load(), error: null);
     } catch (e) {
       debugPrint('ConfigLoader: failed to load config ($e), using defaults.');
+      return (config: AppConfig.defaults, error: e);
     }
-    return AppConfig.defaults;
   }
 
   /// Sets [preference] to [value] in the user's file and returns the config

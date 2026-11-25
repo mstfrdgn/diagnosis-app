@@ -470,6 +470,13 @@ replaces only the value: comments, blank lines, key order and unknown keys stay.
 A missing key or section is added. A file that is not valid YAML is never
 overwritten; the Settings screen reports it instead.
 
+A file that cannot be read, or is not valid YAML, is never reported as loaded:
+- **Reload** (`ConfigLoader.load()`, which throws): the settings in use are kept,
+  and the Advanced settings card shows the error.
+- **App start** (`ConfigLoader.loadOrDefaults()`): the app starts with the
+  defaults, and the Settings screen shows a warning with the error
+  (`AppConfigNotifier.startupError`) until a reload or a save succeeds.
+
 ### 6.2 – Config model
 
 File: `frontend/lib/config/app_config.dart`
