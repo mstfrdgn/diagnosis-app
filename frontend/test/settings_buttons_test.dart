@@ -25,7 +25,7 @@ void main() {
     PackageInfo.setMockInitialValues(
       appName: 'diagnostic_app',
       packageName: 'com.diagnostic.diagnosticApp',
-      version: '1.1.0',
+      version: '1.2.0',
       buildNumber: '',
       buildSignature: '',
     );

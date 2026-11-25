@@ -63,6 +63,40 @@ void main() {
       expect(result.sessions.single.timestamp, DateTime(2026, 9, 17, 9, 30));
     });
 
+    test('reads rows written before the timestamp format was changed', () {
+      final result = parse(
+        'timestamp,age,predicted_class\r\n'
+        '17.09.2026 09:30:00,41,1\r\n'
+        '2026-09-18 10:00:00,42,1\r\n'
+        '2026-09-19T11:15:30,43,1\r\n'
+        '2026-09-20 12:00,44,1\r\n'
+        '21.09.2026 13:45,45,1\r\n',
+        config: const AppConfig(csvTimestampFormat: '%d/%m/%Y %H:%M'),
+      );
+      expect(result.sessions.map((s) => s.timestamp), [
+        DateTime(2026, 9, 21, 13, 45),
+        DateTime(2026, 9, 20, 12),
+        DateTime(2026, 9, 19, 11, 15, 30),
+        DateTime(2026, 9, 18, 10),
+        DateTime(2026, 9, 17, 9, 30),
+      ]);
+    });
+
+    test('tries the configured format before the others', () {
+      final result = parse(
+        'timestamp,age,predicted_class\r\n03.04.2026 09:30,41,1\r\n',
+        config: const AppConfig(csvTimestampFormat: '%m.%d.%Y %H:%M'),
+      );
+      expect(result.sessions.single.timestamp, DateTime(2026, 3, 4, 9, 30));
+    });
+
+    test('does not guess at a date with slashes', () {
+      final result = parse(
+        'timestamp,age,predicted_class\r\n03/04/2026 09:30:00,41,1\r\n',
+      );
+      expect(result.sessions.single.timestamp, isNull);
+    });
+
     test('keeps a row whose timestamp does not match the format', () {
       final result = parse(
         'timestamp,age,predicted_class\r\nsometime yesterday,41,1\r\n',

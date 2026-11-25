@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:csv/csv.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -53,19 +55,22 @@ class CsvService {
 
       final needsHeader = !await file.exists() || await file.length() == 0;
 
+      final columns = _buildHeader(featureNames, classLabels);
+      var row = _buildRow(record, featureNames, classLabels, config);
+
       final buffer = StringBuffer();
       if (needsHeader) {
-        buffer.write(
-          '${_converter.convert([
-                _buildHeader(featureNames, classLabels, config),
-              ])}\r\n',
+        buffer.write(_line(columns));
+      } else {
+        row = await _alignToHeader(
+          file,
+          columns: columns,
+          row: row,
+          // The timestamp, the features and the predicted class.
+          fixed: featureNames.length + 2,
         );
       }
-      buffer.write(
-        '${_converter.convert([
-              _buildRow(record, featureNames, classLabels, config),
-            ])}\r\n',
-      );
+      buffer.write(_line(row));
 
       await file.writeAsString(buffer.toString(), mode: FileMode.append);
       return CsvWriteResult.success(file.path);
@@ -178,19 +183,81 @@ class CsvService {
         .replaceAll(RegExp(r'^_+|_+$'), '');
   }
 
+  static String _line(List<String> cells) =>
+      '${_converter.convert([cells])}\r\n';
+
+  /// Puts the cells of [row] in the order of the columns [file] already has.
+  ///
+  /// Versions before 1.2.0 could be configured to leave the probabilities,
+  /// the diagnosis or the notes out of a log. Such a file gets the missing
+  /// columns added at the end of its header; its rows are left untouched, and
+  /// read as having nothing in them. The first [fixed] columns are the model's
+  /// own: a file in which those differ is not one this can sort out.
+  Future<List<String>> _alignToHeader(
+    File file, {
+    required List<String> columns,
+    required List<String> row,
+    required int fixed,
+  }) async {
+    final line = await file
+        .openRead()
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .transform(const LineSplitter())
+        .first;
+    final header = const CsvToListConverter(shouldParseNumbers: false)
+        .convert(line)
+        .expand((cells) => cells.map((c) => '$c'.trim()))
+        .toList();
+    if (listEquals(header, columns) ||
+        header.length < fixed ||
+        !listEquals(header.sublist(0, fixed), columns.sublist(0, fixed))) {
+      return row;
+    }
+
+    final cells = Map.fromIterables(columns.skip(fixed), row.skip(fixed));
+    final existing = header.skip(fixed).toSet();
+    final missing = [
+      for (final column in cells.keys)
+        if (!existing.contains(column)) column,
+    ];
+    if (missing.isNotEmpty) await _replaceHeader(file, [...header, ...missing]);
+    return [
+      ...row.take(fixed),
+      for (final column in header.skip(fixed)) cells[column] ?? '',
+      for (final column in missing) cells[column]!,
+    ];
+  }
+
+  /// Puts [columns] in place of the first line of [file], keeping everything
+  /// after it byte for byte.
+  Future<void> _replaceHeader(File file, List<String> columns) async {
+    final bytes = await file.readAsBytes();
+    final end = bytes.indexOf(0x0A);
+    // Moved into place in one go, so the log is never half-written.
+    final temp = File('${file.path}.tmp');
+    try {
+      await temp.writeAsBytes(
+        [...utf8.encode(_line(columns)), if (end >= 0) ...bytes.skip(end + 1)],
+        flush: true,
+      );
+      await temp.rename(file.path);
+    } catch (_) {
+      if (await temp.exists()) await temp.delete();
+      rethrow;
+    }
+  }
+
   List<String> _buildHeader(
     List<String> featureNames,
     List<String> classLabels,
-    AppConfig config,
   ) {
     return [
       'timestamp',
       ...featureNames,
       'predicted_class',
-      if (config.csvIncludeProbability)
-        ...classLabels.map((label) => 'prob_$label'),
-      if (config.csvIncludeDoctorDiagnosis) 'doctor_diagnosis',
-      if (config.csvIncludeNotes) 'notes',
+      ...classLabels.map((label) => 'prob_$label'),
+      'doctor_diagnosis',
+      'notes',
     ];
   }
 
@@ -204,14 +271,13 @@ class CsvService {
       formatTimestamp(record.timestamp, config.csvTimestampFormat),
       ...featureNames.map((name) => record.inputs[name]?.toString() ?? ''),
       record.predictedClass,
-      if (config.csvIncludeProbability)
-        ...classLabels.map(
-          // Two decimals is all a reader acts on, and it keeps the column
-          // narrow enough to scan in a spreadsheet.
-          (label) => record.probabilities[label]?.toStringAsFixed(2) ?? '',
-        ),
-      if (config.csvIncludeDoctorDiagnosis) record.doctorDiagnosis ?? '',
-      if (config.csvIncludeNotes) record.notes ?? '',
+      ...classLabels.map(
+        // Two decimals is all a reader acts on, and it keeps the column
+        // narrow enough to scan in a spreadsheet.
+        (label) => record.probabilities[label]?.toStringAsFixed(2) ?? '',
+      ),
+      record.doctorDiagnosis ?? '',
+      record.notes ?? '',
     ];
   }
 

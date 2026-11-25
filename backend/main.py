@@ -19,7 +19,7 @@ def create_app():
 
     from routers import model_router, predict_router
 
-    app = FastAPI(title="Diagnostic App Backend", version="1.1.0")
+    app = FastAPI(title="Diagnostic App Backend", version="1.2.0")
 
     # Allow all localhost origins so the Flutter HTTP client and any dev tools can reach us
     app.add_middleware(

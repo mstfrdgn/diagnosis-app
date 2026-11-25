@@ -35,7 +35,8 @@
 - Flutter spawns the FastAPI backend as a child process on startup; kills it on exit.
 - All communication is HTTP on localhost (no network required).
 - The backend binary is bundled inside the Flutter app's assets and extracted at first run.
-- Config is a single YAML file editable by the user without recompiling.
+- Config is a single YAML file. Users change their preferences on the Settings
+  screen, which writes them to the file; technical settings are edited in it by hand.
 - Per-model setup (groups, variable assignment, ranges) is captured once in the
   Configuration Wizard and persisted per model file, so reopening a model skips
   straight to its saved form.
@@ -54,8 +55,9 @@ diagnostic_app/
 │   │   ├── app.dart                 MaterialApp, router
 │   │   ├── config/
 │   │   │   ├── app_config.dart      Dart model for app_config.yaml
-│   │   │   ├── app_config_notifier.dart  Holds live AppConfig, notifies on reload
-│   │   │   └── config_loader.dart   Reads YAML from assets or app-data dir
+│   │   │   ├── app_config_notifier.dart  Holds live AppConfig, notifies on change/reload
+│   │   │   ├── preference.dart      Keys the Settings screen can change; edits the YAML
+│   │   │   └── config_loader.dart   Reads YAML from assets or app-data dir, saves changes
 │   │   ├── models/
 │   │   │   ├── orange_variable.dart Mirrors Orange Variable types
 │   │   │   ├── model_domain.dart    List of variables + class variable
@@ -67,7 +69,7 @@ diagnostic_app/
 │   │   │   ├── configuration_screen.dart  3-step wizard (groups/assign/ranges)
 │   │   │   ├── input_screen.dart    One page per group, Next/Predict
 │   │   │   ├── result_screen.dart   Shows PredictionResult widget
-│   │   │   └── settings_screen.dart Open/edit app_config.yaml
+│   │   │   └── settings_screen.dart Preferences, config file, logs
 │   │   ├── theme/
 │   │   │   └── app_theme.dart       Light/dark ThemeData, spacing, shared widgets
 │   │   ├── widgets/
@@ -151,7 +153,7 @@ File: `backend/services/predict_service.py`
 
 - Accept dict `{variable_name: value, ...}` from Flutter.
 - Build an `Orange.data.Instance` using the loaded domain.
-- Handle missing values: map the configured `missing_value_token` to `Orange.data.Unknown`.
+- Handle missing values: map `null` (or the request's `missing_token`, default `?`) to `Orange.data.Unknown`.
 - Call `model(instance)`.
 - Extract predicted class label and probability distribution.
 - Return `{predicted_class: str, probabilities: {label: float, ...}}`.
@@ -216,6 +218,7 @@ dependencies:
     sdk: flutter
   http: ^1.2.0               # REST calls
   yaml: ^3.1.2               # Parse app_config.yaml
+  yaml_edit: ^2.2.4          # Change single values in it, keeping comments
   file_picker: ^8.0.0        # .pkcls file browser
   csv: ^5.1.1                # CSV write
   path_provider: ^2.1.3      # App data directory
@@ -314,7 +317,6 @@ Renders one input control based on `OrangeVariable.type`:
 | string        | Hidden (not sent to backend)  | —                           |
 
 - Each field shows the variable name as label.
-- If `show_tooltips: true` and description available, shows `?` icon with tooltip.
 - If `show_range_hints: true` and min/max present, shows hint text `(min – max)`.
 - A "?" or "Unknown" option is always available for each field (maps to missing value).
 
@@ -387,13 +389,16 @@ and a dark `ThemeData`; `app.dart` picks between them via `config.app.theme`.
 
 File: `frontend/lib/widgets/evaluation_dialog.dart`
 
-`AlertDialog` shown after result display (if `config.evaluationDialog.autoOpenAfterResult: true`).
+`AlertDialog` shown after result display, if `enabled` and the YAML-only
+`auto_open_after_result` are both on. Nothing else opens it.
 
 Fields rendered in the order specified by `config.evaluationDialog.fieldOrder`:
-- `doctor_diagnosis` → `DropdownButtonFormField` using `doctorDiagnosisOptions`.
+- `doctor_diagnosis` → `DropdownButtonFormField` with the class values of the
+  loaded model, plus "Uncertain" if `include_uncertain_option` is on (and the
+  model has no such class itself).
 - `notes` → multiline `TextFormField`.
 
-Returns `EvaluationData {doctorDiagnosis: String, notes: String}` on confirm.
+Returns `EvaluationResult {doctorDiagnosis: String?, notes: String?}` on confirm.
 
 ### 5.2 – Session record model
 
@@ -417,6 +422,18 @@ File: `frontend/lib/services/csv_service.dart`
 - Subsequent calls append one data row.
 - Uses the `csv` package to handle quoting/escaping.
 - Header columns: `timestamp, [feature_names...], predicted_class, [class_probabilities...], doctor_diagnosis, notes`.
+  All of them are always written; a cell without a value is left empty.
+- Before 1.2.0 the probability, diagnosis and notes columns could be switched
+  off in the YAML. Rows appended to a log written that way follow its header,
+  to which the missing columns are added at the end; its rows stay untouched.
+
+**Reading back.** `SessionLogService` takes the columns from each file's own
+header, so logs from any version and with any diagnosis values still display.
+Timestamps are tried in the configured `timestamp_format` first, then in
+`%Y-%m-%d %H:%M:%S`, `%Y-%m-%dT%H:%M:%S`, `%d.%m.%Y %H:%M:%S`,
+`%Y-%m-%d %H:%M` and `%d.%m.%Y %H:%M`, so changing the format does not hide
+older rows from the date filters. Formats with slashes are not guessed, because
+day/month and month/day cannot be told apart.
 
 **One CSV per model.** The header is built from the model's domain, so a shared
 log would append rows under a header describing entirely different columns.
@@ -446,20 +463,55 @@ Resolution order (first found wins):
 
 On first launch, copy the asset to the documents dir so the user can edit it.
 
+`ConfigLoader.save()` changes one key of the user's copy. It reads the file
+afresh, so hand edits made since the last load are kept, and replaces it through
+a temporary file. `Preference.applyTo()` makes the change with `yaml_edit`, which
+replaces only the value: comments, blank lines, key order and unknown keys stay.
+A missing key or section is added. A file that is not valid YAML is never
+overwritten; the Settings screen reports it instead.
+
 ### 6.2 – Config model
 
 File: `frontend/lib/config/app_config.dart`
 
 Dart class with `fromYaml(Map yaml)` factory. All keys mirror `config/app_config.yaml`.  
-Provide defaults for every optional key so missing keys never crash.
+Provide defaults for every optional key so missing keys never crash. A value of
+the wrong type falls back to the default of that key only.
+
+The user's copy is kept on uninstall, so it can be from any older version.
+Removed keys are ignored and left in the file:
+
+| Key | Removed in |
+|-----|------------|
+| `backend.port`, `result_display.style`, `positive_class_color`, `negative_class_color` | before 1.1.0 |
+| `app.version`, `model.default_path`, `form.missing_value_token`, `form.show_tooltips` (had no effect) | 1.2.0 |
+| `evaluation_dialog.doctor_diagnosis_options` (now the model's classes) | 1.2.0 |
+| `csv_logging.include_probability`, `include_doctor_diagnosis`, `include_notes` (now always written) | 1.2.0 |
 
 ### 6.3 – Settings screen
 
 File: `frontend/lib/screens/settings_screen.dart`
 
-- Shows current config path.
-- "Open in editor" button: `launchUrl(Uri.file(configPath))` to open the YAML in system default editor.
-- "Reload config" button: re-reads the YAML and triggers a hot-reload of the UI.
+**Preferences** are for clinicians and researchers, who should not have to edit
+a YAML file. Each change is written to `app_config.yaml` and takes effect at once:
+
+| Group | Control | Key |
+|-------|---------|-----|
+| Appearance | Theme (light / dark) | `app.theme` |
+| Result display | Show probabilities | `result_display.show_probability` |
+| | Probability format (percent / decimal) | `result_display.probability_format` |
+| Physician evaluation | Evaluation dialog | `evaluation_dialog.enabled` |
+| | Add an "Uncertain" option | `evaluation_dialog.include_uncertain_option` |
+| Session logging | CSV logging | `csv_logging.enabled` |
+| Form | Show range hints | `form.show_range_hints` |
+
+**Advanced settings** is the card for the configuration file: its path, "Open in
+editor", and "Reload", which re-reads it without a restart (backend settings
+apply from the next start). Only editable there: `backend.*`, `app.title`,
+`evaluation_dialog.field_order`, `evaluation_dialog.auto_open_after_result`,
+`csv_logging.output_path` and `csv_logging.timestamp_format`.
+
+Below are the session log and app log folders, current values and app version.
 
 ---
 
@@ -653,6 +705,7 @@ App start
 | 11 | PyInstaller bundle | Release binary works, extracted correctly by Flutter | ✅ Done — tested on a second, clean Windows machine (no Python, no Orange) and on an Intel iMac |
 | 12 | Windows build | `flutter build windows` produces working installer | ✅ Done |
 | 13 | macOS build | `flutter build macos` produces working `.app` | ✅ Done — see note below |
+| 14 | Preferences in the Settings screen (1.2.0) | User-facing settings editable without YAML, diagnosis options from the model's classes, unused keys removed, older config files still work | ✅ Done |
 
 **macOS note.** The `.app` and its bundled backend were built and tested on
 an Intel iMac. The app is unsigned and not notarized, so on first launch users

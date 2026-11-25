@@ -130,9 +130,9 @@ class SessionLogSummary {
 /// Reads back the CSV logs [CsvService] writes.
 ///
 /// Columns are taken from the file's own header rather than from the current
-/// [AppConfig], because the two can disagree: turning `include_notes` off
-/// does not rewrite rows that already have a notes column. The header is the
-/// only description of a given file that is guaranteed to match its rows.
+/// [AppConfig], because the two can disagree: versions before 1.2.0 could
+/// be configured to leave columns out. The header is the only description of
+/// a given file that is guaranteed to match its rows.
 class SessionLogService {
   const SessionLogService();
 
@@ -141,6 +141,18 @@ class SessionLogService {
   static const _doctorDiagnosisColumn = 'doctor_diagnosis';
   static const _notesColumn = 'notes';
   static const _probabilityPrefix = 'prob_';
+
+  /// Tried in turn on rows that do not match the configured format, which is
+  /// what rows written before a change of `csv_logging.timestamp_format` look
+  /// like. Only formats that cannot be mistaken for one another: with slashes,
+  /// day/month and month/day read the same.
+  static const _fallbackTimestampFormats = [
+    '%Y-%m-%d %H:%M:%S',
+    '%Y-%m-%dT%H:%M:%S',
+    '%d.%m.%Y %H:%M:%S',
+    '%Y-%m-%d %H:%M',
+    '%d.%m.%Y %H:%M',
+  ];
 
   Future<SessionLog> load({
     required String modelPath,
@@ -314,7 +326,19 @@ class SessionLogService {
     final doctorIndex = header.indexOf(_doctorDiagnosisColumn);
     final notesIndex = header.indexOf(_notesColumn);
 
-    final timestampPattern = _TimestampPattern.from(config.csvTimestampFormat);
+    final timestampPatterns = [
+      for (final format in {
+        config.csvTimestampFormat,
+        ..._fallbackTimestampFormats,
+      })
+        _TimestampPattern.from(format),
+    ];
+    DateTime? parseTimestamp(String value) {
+      for (final pattern in timestampPatterns) {
+        if (pattern.parse(value) case final timestamp?) return timestamp;
+      }
+      return null;
+    }
 
     final sessions = <LoggedSession>[];
     for (final row in rows.skip(1)) {
@@ -329,7 +353,7 @@ class SessionLogService {
 
       sessions.add(
         LoggedSession(
-          timestamp: timestampPattern.parse(rawTimestamp),
+          timestamp: parseTimestamp(rawTimestamp),
           rawTimestamp: rawTimestamp,
           inputs: {
             for (var i = 0; i < featureNames.length; i++)

@@ -4,16 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
+import '../config/app_config.dart';
 import '../config/app_config_notifier.dart';
+import '../config/preference.dart';
 import '../services/backend_manager.dart';
 import '../services/csv_service.dart';
 import '../services/folder_opener.dart' as folder_opener;
 import '../services/session_log_service.dart';
 import '../theme/app_theme.dart';
 
-/// Shows the location of `app_config.yaml`, lets the user open it in their
-/// system default editor, and reload it into [AppConfigNotifier] without
-/// restarting the app. Also shows where session CSV logs are written, what
+/// Lets the user change the preferences in `app_config.yaml`, which take
+/// effect at once, and open the file itself for the technical settings, which
+/// are reloaded from it on request. Also shows where session CSV logs are written, what
 /// they add up to, where the app and backend logs are, and which version of
 /// the app is running.
 class SettingsScreen extends StatefulWidget {
@@ -45,8 +47,8 @@ Future<void> _openInDefaultEditor(String path) async {
   }
 }
 
-/// The cards on the screen whose buttons report back.
-enum _SettingsCard { config, sessionLogs, appLogs }
+/// The cards on the screen whose controls report back.
+enum _SettingsCard { preferences, config, sessionLogs, appLogs }
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String? _configPath;
@@ -106,6 +108,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _appVersion = 'Unavailable ($e)');
+    }
+  }
+
+  /// Saves a changed preference. The control follows the config, so it only
+  /// moves once the file has been written.
+  Future<void> _setPreference(Preference preference, Object value) async {
+    try {
+      await context.read<AppConfigNotifier>().setPreference(preference, value);
+      if (!mounted) return;
+      // An earlier failure no longer holds.
+      if (_status?.card == _SettingsCard.preferences) {
+        setState(() => _status = null);
+      }
+    } on FileSystemException catch (e) {
+      _setStatus(
+        _SettingsCard.preferences,
+        'Not saved: app_config.yaml could not be read or written '
+        '(${e.osError?.message ?? e.message}).',
+        isError: true,
+      );
+    } catch (e) {
+      _setStatus(
+        _SettingsCard.preferences,
+        'Not saved: app_config.yaml contains an error. Correct it under '
+        'Advanced settings, or delete the file and press Reload to start over '
+        'with the defaults. ($e)',
+        isError: true,
+      );
     }
   }
 
@@ -208,10 +238,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const SectionHeader(
-                    title: 'Configuration file',
-                    subtitle:
-                        'Edit this YAML to change app-wide behaviour, then '
-                        'reload it without restarting.',
+                    title: 'Preferences',
+                    subtitle: 'Changes are saved and take effect immediately.',
+                  ),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _Preferences(
+                            config: config,
+                            onChanged: _setPreference,
+                          ),
+                          if (_statusIn(_SettingsCard.preferences)
+                              case final status when status.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                              child: Column(children: status),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  const SectionHeader(
+                    title: 'Advanced settings',
+                    subtitle: 'Technical settings such as the backend '
+                        'connection and the log location are edited in the '
+                        'configuration file. Reload it afterwards; backend '
+                        'settings apply from the next start of the app.',
                   ),
                   Card(
                     child: Padding(
@@ -273,7 +329,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     subtitle: config.csvLoggingEnabled
                         ? 'Every prediction is appended to a CSV in this '
                             'folder — one file per model.'
-                        : 'CSV logging is disabled in app_config.yaml; '
+                        : 'CSV logging is turned off under Preferences; '
                             'nothing is being written.',
                   ),
                   Card(
@@ -369,25 +425,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         _ConfigRow('Title', config.appTitle),
                         const Divider(height: 1, indent: 20, endIndent: 20),
-                        _ConfigRow('Theme', config.appTheme),
-                        const Divider(height: 1, indent: 20, endIndent: 20),
                         _ConfigRow(
                           'Backend',
                           // The port is picked at startup unless fixed in
                           // the config, so only the running one is accurate.
                           backend?.baseUrl ?? config.backendHost,
-                        ),
-                        const Divider(height: 1, indent: 20, endIndent: 20),
-                        _ConfigRow(
-                          'Probabilities',
-                          config.resultDisplayShowProbability
-                              ? 'shown'
-                              : 'hidden',
-                        ),
-                        const Divider(height: 1, indent: 20, endIndent: 20),
-                        _ConfigRow(
-                          'CSV logging',
-                          config.csvLoggingEnabled ? 'enabled' : 'disabled',
                         ),
                       ],
                     ),
@@ -414,6 +456,170 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The controls for every [Preference], grouped by what they affect.
+class _Preferences extends StatelessWidget {
+  const _Preferences({required this.config, required this.onChanged});
+
+  final AppConfig config;
+  final void Function(Preference preference, Object value) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _PreferenceGroup('Appearance'),
+        _PreferenceChoice(
+          title: 'Theme',
+          options: const {'light': 'Light', 'dark': 'Dark'},
+          selected: config.appTheme == 'dark' ? 'dark' : 'light',
+          onChanged: (value) => onChanged(Preference.theme, value),
+        ),
+        const _PreferenceGroup('Result display'),
+        _PreferenceSwitch(
+          title: 'Show probabilities',
+          value: config.resultDisplayShowProbability,
+          onChanged: (value) => onChanged(Preference.showProbability, value),
+        ),
+        _PreferenceChoice(
+          title: 'Probability format',
+          options: const {'percent': 'Percent', 'decimal': 'Decimal'},
+          selected: config.resultDisplayProbabilityFormat == 'decimal'
+              ? 'decimal'
+              : 'percent',
+          onChanged: (value) => onChanged(Preference.probabilityFormat, value),
+        ),
+        const _PreferenceGroup('Physician evaluation'),
+        _PreferenceSwitch(
+          title: 'Evaluation dialog',
+          // Off in a hand-edited file, this would leave the switch without
+          // any effect.
+          subtitle: config.evaluationDialogAutoOpenAfterResult
+              ? 'Ask for a diagnosis and notes after each result.'
+              : 'Not shown at present: auto_open_after_result is off in the '
+                  'configuration file.',
+          value: config.evaluationDialogEnabled,
+          onChanged: (value) => onChanged(Preference.evaluationEnabled, value),
+        ),
+        _PreferenceSwitch(
+          title: 'Add an “Uncertain” option',
+          subtitle: 'Offered in addition to the classes of the model.',
+          value: config.evaluationDialogIncludeUncertainOption,
+          onChanged: (value) =>
+              onChanged(Preference.includeUncertainOption, value),
+        ),
+        const _PreferenceGroup('Session logging'),
+        _PreferenceSwitch(
+          title: 'CSV logging',
+          subtitle: 'Append every prediction to the session log.',
+          value: config.csvLoggingEnabled,
+          onChanged: (value) => onChanged(Preference.csvLoggingEnabled, value),
+        ),
+        const _PreferenceGroup('Form'),
+        _PreferenceSwitch(
+          title: 'Show range hints',
+          subtitle: 'Show the expected range below numeric fields.',
+          value: config.showRangeHints,
+          onChanged: (value) => onChanged(Preference.showRangeHints, value),
+        ),
+      ],
+    );
+  }
+}
+
+class _PreferenceGroup extends StatelessWidget {
+  const _PreferenceGroup(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Text(
+        title,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _PreferenceSwitch extends StatelessWidget {
+  const _PreferenceSwitch({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+  });
+
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SwitchListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      title: Text(title, style: theme.textTheme.bodyMedium),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              subtitle!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+      value: value,
+      onChanged: onChanged,
+    );
+  }
+}
+
+class _PreferenceChoice extends StatelessWidget {
+  const _PreferenceChoice({
+    required this.title,
+    required this.options,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final String title;
+
+  /// Value as stored in the config → label.
+  final Map<String, String> options;
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(title, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+          SegmentedButton<String>(
+            segments: [
+              for (final MapEntry(:key, :value) in options.entries)
+                ButtonSegment(value: key, label: Text(value)),
+            ],
+            selected: {selected},
+            showSelectedIcon: false,
+            onSelectionChanged: (selection) => onChanged(selection.first),
+          ),
+        ],
       ),
     );
   }

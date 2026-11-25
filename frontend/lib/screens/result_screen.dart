@@ -79,7 +79,12 @@ class _ResultScreenState extends State<ResultScreen> {
       final wanted = await EvaluationDialog.confirm(context);
       if (!mounted) return;
       if (wanted) {
-        evaluation = await EvaluationDialog.show(context, config: config);
+        evaluation = await EvaluationDialog.show(
+          context,
+          config: config,
+          classValues: widget.args.domain.classVar.values ??
+              widget.args.result.probabilities.keys.toList(),
+        );
         if (!mounted) return;
         setState(() => _evaluation = evaluation);
       }

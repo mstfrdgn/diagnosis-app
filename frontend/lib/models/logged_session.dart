@@ -28,8 +28,9 @@ class LoggedSession extends SessionLogEntry {
     required this.notes,
   });
 
-  /// Parsed timestamp, or null when the cell did not match the configured
-  /// `csv_logging.timestamp_format`. [rawTimestamp] is then all we can show.
+  /// Parsed timestamp, or null when the cell matched neither the configured
+  /// `csv_logging.timestamp_format` nor any of the formats tried after it.
+  /// [rawTimestamp] is then all we can show.
   @override
   final DateTime? timestamp;
 
@@ -42,7 +43,7 @@ class LoggedSession extends SessionLogEntry {
   final String predictedClass;
 
   /// Class label → probability, for the `prob_*` columns that parsed as
-  /// numbers. Empty when the log was written with probabilities disabled.
+  /// numbers. Empty when the log was written without probabilities.
   final Map<String, double> probabilities;
 
   final String doctorDiagnosis;

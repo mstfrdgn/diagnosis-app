@@ -1,6 +1,6 @@
 name: diagnostic_app
 description: A configurable medical diagnosis desktop application.
-version: 1.1.0+1
+version: 1.2.0+1
 publish_to: none
 
 environment:
@@ -15,6 +15,9 @@ dependencies:
 
   # Parse app_config.yaml
   yaml: ^3.1.2
+
+  # Change single values in app_config.yaml, keeping its comments
+  yaml_edit: ^2.2.4
 
   # Native file picker for .pkcls model files
   file_picker: ^8.0.0

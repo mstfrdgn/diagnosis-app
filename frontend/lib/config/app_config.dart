@@ -5,24 +5,16 @@ class AppConfig {
     this.backendHost = '127.0.0.1',
     this.backendFixedPort,
     this.backendStartupTimeoutSeconds = 15,
-    this.defaultModelPath = '',
     this.showRangeHints = true,
     this.resultDisplayShowProbability = true,
     this.resultDisplayProbabilityFormat = 'percent',
     this.evaluationDialogEnabled = true,
     this.evaluationDialogFieldOrder = const ['doctor_diagnosis', 'notes'],
-    this.evaluationDialogDoctorDiagnosisOptions = const [
-      'Positive',
-      'Negative',
-      'Uncertain',
-    ],
+    this.evaluationDialogIncludeUncertainOption = true,
     this.evaluationDialogAutoOpenAfterResult = true,
     this.csvLoggingEnabled = true,
     this.csvOutputPath = 'sessions.csv',
     this.csvTimestampFormat = '%Y-%m-%d %H:%M:%S',
-    this.csvIncludeProbability = true,
-    this.csvIncludeDoctorDiagnosis = true,
-    this.csvIncludeNotes = true,
   });
 
   final String appTitle;
@@ -35,7 +27,6 @@ class AppConfig {
   /// they all hold the old default 8765, which nobody chose.
   final int? backendFixedPort;
   final int backendStartupTimeoutSeconds;
-  final String defaultModelPath;
   final bool showRangeHints;
 
   final bool resultDisplayShowProbability;
@@ -43,65 +34,72 @@ class AppConfig {
 
   final bool evaluationDialogEnabled;
   final List<String> evaluationDialogFieldOrder;
-  final List<String> evaluationDialogDoctorDiagnosisOptions;
+
+  /// Whether "Uncertain" is offered as a doctor diagnosis after the model's
+  /// own classes.
+  final bool evaluationDialogIncludeUncertainOption;
   final bool evaluationDialogAutoOpenAfterResult;
 
   final bool csvLoggingEnabled;
   final String csvOutputPath;
   final String csvTimestampFormat;
-  final bool csvIncludeProbability;
-  final bool csvIncludeDoctorDiagnosis;
-  final bool csvIncludeNotes;
 
   static const AppConfig defaults = AppConfig();
 
+  /// Reads the keys this version knows and ignores all others, so a file from
+  /// an older version can be read as it is. A key that is missing, or holds a
+  /// value of the wrong type, falls back to its own default only.
   factory AppConfig.fromYaml(Map<dynamic, dynamic> yaml) {
-    final app = (yaml['app'] as Map?) ?? {};
-    final backend = (yaml['backend'] as Map?) ?? {};
-    final model = (yaml['model'] as Map?) ?? {};
-    final form = (yaml['form'] as Map?) ?? {};
-    final resultDisplay = (yaml['result_display'] as Map?) ?? {};
-    final evaluationDialog = (yaml['evaluation_dialog'] as Map?) ?? {};
-    final csvLogging = (yaml['csv_logging'] as Map?) ?? {};
+    Map section(String name) => switch (yaml[name]) {
+          final Map values => values,
+          _ => const {},
+        };
+    T read<T>(Map values, String key, T fallback) {
+      final value = values[key];
+      return value is T ? value : fallback;
+    }
 
-    const defaultFieldOrder = ['doctor_diagnosis', 'notes'];
-    const defaultDiagnosisOptions = ['Positive', 'Negative', 'Uncertain'];
+    final app = section('app');
+    final backend = section('backend');
+    final form = section('form');
+    final resultDisplay = section('result_display');
+    final evaluationDialog = section('evaluation_dialog');
+    final csvLogging = section('csv_logging');
 
     return AppConfig(
-      appTitle: (app['title'] as String?) ?? 'Medical Diagnosis Assistant',
-      appTheme: (app['theme'] as String?) ?? 'light',
-      backendHost: (backend['host'] as String?) ?? '127.0.0.1',
+      appTitle: read(app, 'title', defaults.appTitle),
+      appTheme: read(app, 'theme', defaults.appTheme),
+      backendHost: read(backend, 'host', defaults.backendHost),
       backendFixedPort: switch (backend['fixed_port']) {
         final int port when port > 0 => port,
         _ => null,
       },
-      backendStartupTimeoutSeconds:
-          (backend['startup_timeout_seconds'] as int?) ?? 15,
-      defaultModelPath: (model['default_path'] as String?) ?? '',
-      showRangeHints: (form['show_range_hints'] as bool?) ?? true,
-      resultDisplayShowProbability:
-          (resultDisplay['show_probability'] as bool?) ?? true,
-      resultDisplayProbabilityFormat:
-          (resultDisplay['probability_format'] as String?) ?? 'percent',
-      evaluationDialogEnabled: (evaluationDialog['enabled'] as bool?) ?? true,
-      evaluationDialogFieldOrder:
-          (evaluationDialog['field_order'] as List?)?.cast<String>() ??
-              defaultFieldOrder,
-      evaluationDialogDoctorDiagnosisOptions:
-          (evaluationDialog['doctor_diagnosis_options'] as List?)
-                  ?.cast<String>() ??
-              defaultDiagnosisOptions,
-      evaluationDialogAutoOpenAfterResult:
-          (evaluationDialog['auto_open_after_result'] as bool?) ?? true,
-      csvLoggingEnabled: (csvLogging['enabled'] as bool?) ?? true,
-      csvOutputPath: (csvLogging['output_path'] as String?) ?? 'sessions.csv',
+      backendStartupTimeoutSeconds: read(backend, 'startup_timeout_seconds',
+          defaults.backendStartupTimeoutSeconds),
+      showRangeHints: read(form, 'show_range_hints', defaults.showRangeHints),
+      resultDisplayShowProbability: read(resultDisplay, 'show_probability',
+          defaults.resultDisplayShowProbability),
+      resultDisplayProbabilityFormat: read(resultDisplay, 'probability_format',
+          defaults.resultDisplayProbabilityFormat),
+      evaluationDialogEnabled:
+          read(evaluationDialog, 'enabled', defaults.evaluationDialogEnabled),
+      evaluationDialogFieldOrder: switch (evaluationDialog['field_order']) {
+        final List fields => fields.whereType<String>().toList(),
+        _ => defaults.evaluationDialogFieldOrder,
+      },
+      evaluationDialogIncludeUncertainOption: read(
+          evaluationDialog,
+          'include_uncertain_option',
+          defaults.evaluationDialogIncludeUncertainOption),
+      evaluationDialogAutoOpenAfterResult: read(
+          evaluationDialog,
+          'auto_open_after_result',
+          defaults.evaluationDialogAutoOpenAfterResult),
+      csvLoggingEnabled:
+          read(csvLogging, 'enabled', defaults.csvLoggingEnabled),
+      csvOutputPath: read(csvLogging, 'output_path', defaults.csvOutputPath),
       csvTimestampFormat:
-          (csvLogging['timestamp_format'] as String?) ?? '%Y-%m-%d %H:%M:%S',
-      csvIncludeProbability:
-          (csvLogging['include_probability'] as bool?) ?? true,
-      csvIncludeDoctorDiagnosis:
-          (csvLogging['include_doctor_diagnosis'] as bool?) ?? true,
-      csvIncludeNotes: (csvLogging['include_notes'] as bool?) ?? true,
+          read(csvLogging, 'timestamp_format', defaults.csvTimestampFormat),
     );
   }
 }

@@ -1,10 +1,10 @@
 # ─────────────────────────────────────────────
 # Diagnostic App – Configuration File
+# Most of these can be changed on the Settings screen of the app.
 # ─────────────────────────────────────────────
 
 app:
   title: "Medical Diagnosis Assistant"
-  version: "1.1.0"
   theme: light                  # light | dark
 
 backend:
@@ -12,9 +12,6 @@ backend:
   # fixed_port: 8765            # Optional: always use this port (default: a free one)
   startup_timeout_seconds: 15   # How long Flutter waits for the backend to be ready
                                 # (installed app: at least 180)
-
-model:
-  default_path: ""              # Optional: pre-load a .pkcls file on startup
 
 result_display:
   show_probability: true
@@ -26,24 +23,15 @@ evaluation_dialog:
   field_order:
     - doctor_diagnosis
     - notes
-  doctor_diagnosis_options:
-    - "Positive"
-    - "Negative"
-    - "Uncertain"
+  # Offer "Uncertain" in addition to the classes of the loaded model
+  include_uncertain_option: true
   auto_open_after_result: true
 
 csv_logging:
   enabled: true
   output_path: "sessions.csv"   # Relative to app data directory
   timestamp_format: "%Y-%m-%d %H:%M:%S"
-  include_probability: true
-  include_doctor_diagnosis: true
-  include_notes: true
 
 form:
-  # How to handle missing / unknown values submitted by the user
-  missing_value_token: "?"
-  # Show variable descriptions as tooltips if available from the Orange domain
-  show_tooltips: true
   # For continuous variables: show allowed range hint below the field
   show_range_hints: true

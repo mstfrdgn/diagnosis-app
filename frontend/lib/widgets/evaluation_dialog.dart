@@ -14,19 +14,45 @@ class EvaluationResult {
 /// own diagnosis and notes. Fields shown and their order are driven by
 /// `config.evaluationDialog.fieldOrder`.
 class EvaluationDialog extends StatefulWidget {
-  const EvaluationDialog({super.key, required this.config});
+  const EvaluationDialog({
+    super.key,
+    required this.config,
+    required this.classValues,
+  });
 
   final AppConfig config;
+
+  /// The classes the loaded model can predict, offered as diagnoses.
+  final List<String> classValues;
+
+  static const _uncertainOption = 'Uncertain';
+
+  /// The choices for the doctor's diagnosis: the model's own classes, plus
+  /// "Uncertain" if configured and the model has no such class itself.
+  static List<String> diagnosisOptions(
+    List<String> classValues,
+    AppConfig config,
+  ) {
+    final hasUncertainClass = classValues
+        .any((v) => v.toLowerCase() == _uncertainOption.toLowerCase());
+    return [
+      ...classValues,
+      if (config.evaluationDialogIncludeUncertainOption && !hasUncertainClass)
+        _uncertainOption,
+    ];
+  }
 
   /// Shows the dialog and returns the [EvaluationResult] entered, or `null`
   /// if the user dismissed it without confirming.
   static Future<EvaluationResult?> show(
     BuildContext context, {
     required AppConfig config,
+    required List<String> classValues,
   }) {
     return showDialog<EvaluationResult>(
       context: context,
-      builder: (_) => EvaluationDialog(config: config),
+      builder: (_) =>
+          EvaluationDialog(config: config, classValues: classValues),
     );
   }
 
@@ -155,13 +181,15 @@ class _EvaluationDialogState extends State<EvaluationDialog> {
       case 'doctor_diagnosis':
         return DropdownButtonFormField<String>(
           initialValue: _doctorDiagnosis,
+          // Class names come from the model and can be long.
+          isExpanded: true,
           decoration: const InputDecoration(
             labelText: 'Doctor diagnosis',
             prefixIcon: Icon(Icons.medical_information_outlined, size: 20),
           ),
           items: [
-            for (final option
-                in widget.config.evaluationDialogDoctorDiagnosisOptions)
+            for (final option in EvaluationDialog.diagnosisOptions(
+                widget.classValues, widget.config))
               DropdownMenuItem(value: option, child: Text(option)),
           ],
           onChanged: (selected) => setState(() => _doctorDiagnosis = selected),

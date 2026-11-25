@@ -7,7 +7,7 @@
 ; folder, and the app unpacks it to %LOCALAPPDATA% on first start.
 
 #ifndef AppVersion
-  #define AppVersion "1.1.0"
+  #define AppVersion "1.2.0"
 #endif
 #ifndef ReleaseDir
   #define ReleaseDir "..\frontend\build\windows\x64\runner\Release"
